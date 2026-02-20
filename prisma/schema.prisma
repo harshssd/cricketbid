@@ -1,0 +1,448 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String                 @id @default(cuid())
+  email             String                 @unique
+  name              String
+  image             String?
+  phone             String?
+  bio               String?
+  orgName           String?                @map("organization_name")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  isEmailVerified   Boolean                @default(false) @map("is_email_verified")
+  participations    AuctionParticipation[]
+  ownedAuctions     Auction[]              @relation("AuctionOwner")
+  auditLogs         AuditLog[]
+  bids              Bid[]
+  clubMemberships   ClubMembership[]
+  ownedClubs        Club[]                 @relation("ClubOwner")
+  dryRuns           DryRun[]
+  leagueMemberships LeagueMembership[]
+  ownedLeagues      League[]               @relation("LeagueOwner")
+  captainedTeams    Team[]                 @relation("TeamCaptain")
+  teamMemberships   TeamMember[]
+  linkedPlayers     Player[]               @relation("LinkedPlayers")
+
+  @@map("users")
+}
+
+model Auction {
+  id             String                 @id @default(cuid())
+  name           String
+  description    String?
+  ownerId        String                 @map("owner_id")
+  scheduledAt    DateTime               @map("scheduled_at")
+  timezone       String                 @default("UTC")
+  status         AuctionStatus          @default(DRAFT)
+  visibility     Visibility             @default(PRIVATE)
+  passcode       String?
+  budgetPerTeam  Int                    @default(1000) @map("budget_per_team")
+  currencyName   String                 @default("Coins") @map("currency_name")
+  currencyIcon   String                 @default("🪙") @map("currency_icon")
+  squadSize      Int                    @default(11) @map("squad_size")
+  logo           String?
+  banner         String?
+  primaryColor   String                 @default("#1B2A4A") @map("primary_color")
+  secondaryColor String                 @default("#3B82F6") @map("secondary_color")
+  bgImage        String?                @map("bg_image")
+  font           String                 @default("system")
+  themePreset    String?                @map("theme_preset")
+  tagline        String?
+  runtimeState   Json?                  @map("runtime_state")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  leagueId       String?                @map("league_id")
+  participations AuctionParticipation[]
+  results        AuctionResult[]
+  league         League?                @relation(fields: [leagueId], references: [id])
+  owner          User                   @relation("AuctionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  auditLogs      AuditLog[]
+  players        Player[]
+  rounds         Round[]
+  teams          Team[]
+  tiers          Tier[]
+
+  @@map("auctions")
+}
+
+model AuctionParticipation {
+  id        String          @id @default(cuid())
+  auctionId String          @map("auction_id")
+  userId    String          @map("user_id")
+  role      ParticipantRole
+  teamId    String?         @map("team_id")
+  joinedAt  DateTime        @default(now()) @map("joined_at")
+  auction   Auction         @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  team      Team?           @relation(fields: [teamId], references: [id])
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([auctionId, userId])
+  @@map("auction_participations")
+}
+
+model Team {
+  id              String                 @id @default(cuid())
+  name            String
+  description     String?
+  primaryColor    String                 @default("#3B82F6") @map("primary_color")
+  secondaryColor  String                 @default("#1B2A4A") @map("secondary_color")
+  logo            String?
+  captainId       String?                @map("captain_id")
+  maxMembers      Int                    @default(11) @map("max_members")
+  isActive        Boolean                @default(true) @map("is_active")
+
+  // Optional context associations - only one should be set
+  clubId          String?                @map("club_id")
+  leagueId        String?                @map("league_id")
+  auctionId       String?                @map("auction_id")
+
+  // Auction-specific fields
+  budgetRemaining Int?                   @map("budget_remaining")
+
+  // Metadata
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  // Relations
+  club            Club?                  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  league          League?                @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  auction         Auction?               @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  captain         User?                  @relation("TeamCaptain", fields: [captainId], references: [id])
+  members         TeamMember[]
+
+  // Auction-specific relations (only populated if auctionId is set)
+  participations  AuctionParticipation[]
+  results         AuctionResult[]
+  players         Player[]               @relation("TeamPlayers")
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String         @id @default(cuid())
+  teamId   String         @map("team_id")
+  userId   String         @map("user_id")
+  role     TeamMemberRole @default(PLAYER)
+  joinedAt DateTime       @default(now()) @map("joined_at")
+
+  team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+
+model Tier {
+  id         String   @id @default(cuid())
+  auctionId  String   @map("auction_id")
+  name       String
+  basePrice  Int      @map("base_price")
+  color      String   @default("#3B82F6")
+  icon       String?
+  sortOrder  Int      @map("sort_order")
+  minPerTeam Int      @default(0) @map("min_per_team")
+  maxPerTeam Int?     @map("max_per_team")
+  players    Player[]
+  rounds     Round[]
+  auction    Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  @@map("tiers")
+}
+
+model Player {
+  id             String          @id @default(cuid())
+  auctionId      String          @map("auction_id")
+  name           String
+  image          String?
+  playingRole    PlayingRole     @map("playing_role")
+  battingStyle   String?         @map("batting_style")
+  bowlingStyle   String?         @map("bowling_style")
+  tierId         String          @map("tier_id")
+  customTags     String?         @map("custom_tags")
+  status         PlayerStatus    @default(AVAILABLE)
+  assignedTeamId String?         @map("assigned_team_id")
+
+  // User linking fields
+  userId         String?         @map("user_id")
+  linkedAt       DateTime?       @map("linked_at")
+  linkingMethod  PlayerLinkingMethod? @map("linking_method")
+  isLinked       Boolean         @default(false) @map("is_linked")
+  linkVerified   Boolean         @default(false) @map("link_verified")
+
+  // Additional metadata for linking
+  email          String?         // For matching with user accounts
+  phone          String?         // Additional contact info for matching
+
+  results        AuctionResult[]
+  bids           Bid[]
+  assignedTeam   Team?           @relation("TeamPlayers", fields: [assignedTeamId], references: [id])
+  auction        Auction         @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  tier           Tier            @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  linkedUser     User?           @relation("LinkedPlayers", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("players")
+}
+
+model Round {
+  id           String      @id @default(cuid())
+  auctionId    String      @map("auction_id")
+  tierId       String      @map("tier_id")
+  status       RoundStatus @default(PENDING)
+  openedAt     DateTime?   @map("opened_at")
+  closedAt     DateTime?   @map("closed_at")
+  timerSeconds Int?        @map("timer_seconds")
+  bids         Bid[]
+  auction      Auction     @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  tier         Tier        @relation(fields: [tierId], references: [id], onDelete: Cascade)
+
+  @@map("rounds")
+}
+
+model Bid {
+  id              String   @id @default(cuid())
+  roundId         String   @map("round_id")
+  captainId       String   @map("captain_id")
+  playerId        String   @map("player_id")
+  amount          Int
+  submittedAt     DateTime @default(now()) @map("submitted_at")
+  isWinningBid    Boolean  @default(false) @map("is_winning_bid")
+  rejectionReason String?  @map("rejection_reason")
+  captain         User     @relation(fields: [captainId], references: [id], onDelete: Cascade)
+  player          Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  round           Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, captainId, playerId])
+  @@map("bids")
+}
+
+model AuctionResult {
+  id               String   @id @default(cuid())
+  auctionId        String   @map("auction_id")
+  playerId         String   @map("player_id")
+  teamId           String   @map("team_id")
+  winningBidAmount Int      @map("winning_bid_amount")
+  tieBroken        Boolean  @default(false) @map("tie_broken")
+  tieMethod        String?  @map("tie_method")
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+  auction          Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  player           Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team             Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([auctionId, playerId])
+  @@map("auction_results")
+}
+
+model DryRun {
+  id              String    @id @default(cuid())
+  ownerId         String    @map("owner_id")
+  configSnapshot  Json      @map("config_snapshot")
+  resultSnapshot  Json?     @map("result_snapshot")
+  isSaved         Boolean   @default(false) @map("is_saved")
+  balanceScore    Float?    @map("balance_score")
+  recommendations Json?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  expiresAt       DateTime? @map("expires_at")
+  owner           User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("dry_runs")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  auctionId String   @map("auction_id")
+  userId    String   @map("user_id")
+  action    String
+  details   Json?
+  timestamp DateTime @default(now())
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
+
+model League {
+  id           String             @id @default(cuid())
+  name         String
+  description  String?
+  code         String             @unique
+  type         LeagueType         @default(TOURNAMENT)
+  ownerId      String             @map("owner_id")
+  logo         String?
+  banner       String?
+  primaryColor String             @default("#1B2A4A") @map("primary_color")
+  visibility   Visibility         @default(PRIVATE)
+  season       String?
+  startDate    DateTime?          @map("start_date")
+  endDate      DateTime?          @map("end_date")
+  maxTeams     Int?               @default(8) @map("max_teams")
+  settings     Json?
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  clubId       String?            @map("club_id")
+  status       LeagueStatus       @default(PLANNED)
+  auctions     Auction[]
+  invites      LeagueInvite[]
+  memberships  LeagueMembership[]
+  teams        Team[]
+  club         Club?              @relation(fields: [clubId], references: [id])
+  owner        User               @relation("LeagueOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("leagues")
+}
+
+model Club {
+  id           String           @id @default(cuid())
+  name         String
+  description  String?
+  slug         String           @unique
+  ownerId      String           @map("owner_id")
+  logo         String?
+  banner       String?
+  primaryColor String           @default("#1B2A4A") @map("primary_color")
+  visibility   Visibility       @default(PRIVATE)
+  location     String?
+  website      String?
+  maxMembers   Int?             @default(50) @map("max_members")
+  settings     Json?
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  invites      ClubInvite[]
+  memberships  ClubMembership[]
+  owner        User             @relation("ClubOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  leagues      League[]
+  teams        Team[]
+
+  @@map("clubs")
+}
+
+model LeagueMembership {
+  id       String           @id @default(cuid())
+  leagueId String           @map("league_id")
+  userId   String           @map("user_id")
+  role     OrganizationRole @default(MEMBER)
+  joinedAt DateTime         @default(now()) @map("joined_at")
+  league   League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@map("league_memberships")
+}
+
+model ClubMembership {
+  id       String           @id @default(cuid())
+  clubId   String           @map("club_id")
+  userId   String           @map("user_id")
+  role     OrganizationRole @default(MEMBER)
+  joinedAt DateTime         @default(now()) @map("joined_at")
+  club     Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@map("club_memberships")
+}
+
+model LeagueInvite {
+  id        String           @id @default(cuid())
+  leagueId  String           @map("league_id")
+  email     String
+  role      OrganizationRole @default(MEMBER)
+  token     String           @unique
+  expiresAt DateTime         @map("expires_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  league    League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@map("league_invites")
+}
+
+model ClubInvite {
+  id        String           @id @default(cuid())
+  clubId    String           @map("club_id")
+  email     String
+  role      OrganizationRole @default(MEMBER)
+  token     String           @unique
+  expiresAt DateTime         @map("expires_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  club      Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@map("club_invites")
+}
+
+enum AuctionStatus {
+  DRAFT
+  LOBBY
+  LIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ParticipantRole {
+  OWNER
+  MODERATOR
+  CAPTAIN
+  VIEWER
+}
+
+enum PlayingRole {
+  BATSMAN
+  BOWLER
+  ALL_ROUNDER
+  WICKETKEEPER
+}
+
+enum PlayerStatus {
+  AVAILABLE
+  SOLD
+  UNSOLD
+}
+
+enum RoundStatus {
+  PENDING
+  OPEN
+  CLOSED
+}
+
+enum LeagueType {
+  TOURNAMENT
+  SEASONAL
+  CHAMPIONSHIP
+}
+
+enum LeagueStatus {
+  PLANNED
+  ONGOING
+  COMPLETED
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+
+enum TeamMemberRole {
+  CAPTAIN
+  VICE_CAPTAIN
+  PLAYER
+}
+
+enum PlayerLinkingMethod {
+  EMAIL_MATCH    // Automatically linked by matching email
+  MANUAL_LINK    // Manually linked by admin/owner
+  USER_CLAIM     // User claimed the player profile
+  INVITATION     // User was invited to claim the profile
+}

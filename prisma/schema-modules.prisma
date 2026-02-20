@@ -1,0 +1,736 @@
+// Cricket Management Platform - Modular Schema Extension
+// This extends the existing schema to support all cricket management modules
+
+// =============================================================================
+// CORE PLATFORM MODELS (Multi-tenant & Module Management)
+// =============================================================================
+
+model Organization {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  type        OrgType     // CLUB, LEAGUE, TOURNAMENT_ORGANIZER, ACADEMY
+  description String?
+  logo        String?
+  banner      String?
+
+  // Contact & Location
+  email       String?
+  phone       String?
+  website     String?
+  address     Json? // Flexible address structure
+
+  // Settings & Branding
+  primaryColor   String  @default("#1B2A4A")
+  secondaryColor String  @default("#3B82F6")
+  timezone       String  @default("UTC")
+  settings       Json?   // Module-specific settings
+
+  // Status & Metadata
+  isActive    Boolean   @default(true)
+  isVerified  Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Subscription & Modules
+  subscriptionTier String @default("FREE") // FREE, BASIC, PRO, ENTERPRISE
+  enabledModules   String[] // Array of enabled module names
+
+  // Relations
+  memberships     OrganizationMembership[]
+  clubs           Club[]
+  tournaments     Tournament[]
+  seasons         Season[]
+  facilities      Facility[]
+  subscriptions   Subscription[]
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id           String           @id @default(cuid())
+  organizationId String         @map("organization_id")
+  userId       String           @map("user_id")
+  role         OrganizationRole
+  permissions  String[]         // Array of specific permissions
+  joinedAt     DateTime         @default(now()) @map("joined_at")
+  isActive     Boolean          @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_memberships")
+}
+
+// =============================================================================
+// MODULE 1: ENHANCED CLUB MANAGEMENT
+// =============================================================================
+
+model Club {
+  id               String     @id @default(cuid())
+  organizationId   String?    @map("organization_id")
+  name             String
+  shortName        String?    @map("short_name") // e.g., "CSK" for "Chennai Super Kings"
+  slug             String     @unique
+
+  // Basic Info
+  foundedYear      Int?       @map("founded_year")
+  description      String?
+  motto            String?
+  colors           String[]   // Array of team colors
+  logo             String?
+
+  // Location & Contact
+  homeGround       String?    @map("home_ground")
+  address          Json?
+  email            String?
+  phone            String?
+  website          String?
+  socialMedia      Json?      // Links to social media profiles
+
+  // Club Details
+  clubType         ClubType   // PROFESSIONAL, AMATEUR, SCHOOL, ACADEMY, CORPORATE
+  ageGroup         AgeGroup?  // SENIOR, YOUTH, JUNIOR, VETERANS
+  competitionLevel String?    // LOCAL, DISTRICT, STATE, NATIONAL, INTERNATIONAL
+
+  // Status
+  isActive         Boolean    @default(true)
+  isVerified       Boolean    @default(false)
+
+  // Metadata
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  seasons          ClubSeason[]
+  teams            Team[] // A club can have multiple teams
+  facilities       Facility[]
+  finances         ClubFinance[]
+
+  @@map("clubs")
+}
+
+model ClubSeason {
+  id               String        @id @default(cuid())
+  clubId           String        @map("club_id")
+  name             String        // e.g., "2024 Season", "Summer League 2024"
+  startDate        DateTime      @map("start_date")
+  endDate          DateTime      @map("end_date")
+
+  // Season Goals & Budget
+  objectives       String[]      // Array of season objectives
+  budget           Json?         // Budget breakdown
+  targetTournaments String[]     // Tournaments to participate in
+
+  // Status
+  status           SeasonStatus  @default(PLANNED)
+  isActive         Boolean       @default(true)
+
+  // Metadata
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  club             Club          @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  trainingSessions TrainingSession[]
+  seasonStats      ClubSeasonStats[]
+
+  @@map("club_seasons")
+}
+
+model Facility {
+  id               String       @id @default(cuid())
+  organizationId   String?      @map("organization_id")
+  clubId           String?      @map("club_id")
+  name             String
+  facilityType     FacilityType // GROUND, PRACTICE_NET, GYM, PAVILION, TRAINING_FACILITY
+
+  // Location & Details
+  address          Json?
+  capacity         Int?
+  features         String[]     // Array of facility features
+  equipment        Json?        // Available equipment
+
+  // Availability & Booking
+  isActive         Boolean      @default(true)
+  bookingEnabled   Boolean      @default(false)
+  hourlyRate       Float?       @map("hourly_rate")
+
+  // Metadata
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  club             Club?         @relation(fields: [clubId], references: [id])
+  bookings         FacilityBooking[]
+  matches          Match[]       @relation("MatchVenue")
+
+  @@map("facilities")
+}
+
+model FacilityBooking {
+  id           String           @id @default(cuid())
+  facilityId   String           @map("facility_id")
+  userId       String           @map("user_id")
+  bookingType  BookingType      // TRAINING, MATCH, EVENT, MAINTENANCE
+
+  // Booking Details
+  startTime    DateTime         @map("start_time")
+  endTime      DateTime         @map("end_time")
+  purpose      String?
+  notes        String?
+
+  // Status & Payment
+  status       BookingStatus    @default(PENDING)
+  totalCost    Float?           @map("total_cost")
+  paidAmount   Float?           @map("paid_amount")
+
+  // Metadata
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  facility     Facility         @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id])
+
+  @@map("facility_bookings")
+}
+
+// =============================================================================
+// MODULE 2: TOURNAMENT & LEAGUE MANAGEMENT
+// =============================================================================
+
+model Tournament {
+  id                 String            @id @default(cuid())
+  organizationId     String?           @map("organization_id")
+  name               String
+  shortName          String?           @map("short_name")
+  slug               String            @unique
+
+  // Tournament Details
+  tournamentType     TournamentType    // KNOCKOUT, ROUND_ROBIN, HYBRID, LEAGUE
+  gameFormat         GameFormat        // T20, ODI, TEST, T10, HUNDRED
+  description        String?
+
+  // Dates & Venue
+  startDate          DateTime          @map("start_date")
+  endDate            DateTime          @map("end_date")
+  registrationStart  DateTime?         @map("registration_start")
+  registrationEnd    DateTime?         @map("registration_end")
+
+  // Configuration
+  maxTeams           Int               @map("max_teams")
+  minTeams           Int               @default(2) @map("min_teams")
+  entryFee           Float?            @map("entry_fee")
+  prizePool          Json?             @map("prize_pool") // Prize distribution
+
+  // Rules & Settings
+  rules              Json?             // Tournament-specific rules
+  pointsSystem       Json?             @map("points_system") // Points for win/loss/tie/etc
+
+  // Branding
+  logo               String?
+  banner             String?
+  colors             String[]
+
+  // Status
+  status             TournamentStatus  @default(DRAFT)
+  isPublic           Boolean           @default(true) @map("is_public")
+
+  // Metadata
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  organization       Organization?     @relation(fields: [organizationId], references: [id])
+  seasons            Season[]
+  registrations      TournamentRegistration[]
+  matches            Match[]
+  standings          TournamentStanding[]
+
+  @@map("tournaments")
+}
+
+model Season {
+  id               String       @id @default(cuid())
+  organizationId   String?      @map("organization_id")
+  tournamentId     String?      @map("tournament_id")
+  name             String       // e.g., "IPL 2024", "County Championship 2024"
+  year             Int
+
+  // Season Details
+  startDate        DateTime     @map("start_date")
+  endDate          DateTime     @map("end_date")
+  description      String?
+
+  // Status
+  status           SeasonStatus @default(PLANNED)
+  isActive         Boolean      @default(true)
+
+  // Metadata
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  tournament       Tournament?   @relation(fields: [tournamentId], references: [id])
+  matches          Match[]
+
+  @@map("seasons")
+}
+
+model TournamentRegistration {
+  id             String               @id @default(cuid())
+  tournamentId   String               @map("tournament_id")
+  teamId         String               @map("team_id")
+
+  // Registration Details
+  registeredAt   DateTime             @default(now()) @map("registered_at")
+  registeredBy   String               @map("registered_by") // User ID
+
+  // Status & Payment
+  status         RegistrationStatus   @default(PENDING)
+  paymentStatus  PaymentStatus        @default(PENDING) @map("payment_status")
+  paidAmount     Float?               @map("paid_amount")
+
+  // Squad Details
+  squad          Json?                // Team squad for this tournament
+
+  // Metadata
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  // Relations
+  tournament     Tournament           @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  team           Team                 @relation(fields: [teamId], references: [id])
+
+  @@unique([tournamentId, teamId])
+  @@map("tournament_registrations")
+}
+
+model Match {
+  id               String           @id @default(cuid())
+  tournamentId     String?          @map("tournament_id")
+  seasonId         String?          @map("season_id")
+
+  // Match Details
+  matchNumber      Int?             @map("match_number")
+  matchType        MatchType        // LEAGUE, QUALIFIER, ELIMINATOR, FINAL, FRIENDLY
+  gameFormat       GameFormat       // T20, ODI, TEST, etc.
+
+  // Teams
+  homeTeamId       String           @map("home_team_id")
+  awayTeamId       String           @map("away_team_id")
+
+  // Schedule
+  scheduledAt      DateTime         @map("scheduled_at")
+  venueId          String?          @map("venue_id")
+
+  // Match State
+  status           MatchStatus      @default(SCHEDULED)
+  result           Json?            // Match result details
+
+  // Weather & Conditions
+  weather          Json?            // Weather conditions
+  pitchReport      String?          @map("pitch_report")
+
+  // Officials
+  umpires          String[]         // Array of umpire IDs
+  referee          String?          // Match referee ID
+
+  // Metadata
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  tournament       Tournament?      @relation(fields: [tournamentId], references: [id])
+  season           Season?          @relation(fields: [seasonId], references: [id])
+  homeTeam         Team             @relation("HomeMatches", fields: [homeTeamId], references: [id])
+  awayTeam         Team             @relation("AwayMatches", fields: [awayTeamId], references: [id])
+  venue            Facility?        @relation("MatchVenue", fields: [venueId], references: [id])
+
+  @@map("matches")
+}
+
+model TournamentStanding {
+  id             String      @id @default(cuid())
+  tournamentId   String      @map("tournament_id")
+  teamId         String      @map("team_id")
+
+  // Statistics
+  played         Int         @default(0)
+  won            Int         @default(0)
+  lost           Int         @default(0)
+  tied           Int         @default(0)
+  noResult       Int         @default(0) @map("no_result")
+  points         Float       @default(0)
+  netRunRate     Float?      @map("net_run_rate")
+
+  // Additional Stats
+  totalRuns      Int         @default(0) @map("total_runs")
+  totalWickets   Int         @default(0) @map("total_wickets")
+  totalOvers     Float       @default(0) @map("total_overs")
+
+  // Metadata
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  team           Team        @relation(fields: [teamId], references: [id])
+
+  @@unique([tournamentId, teamId])
+  @@map("tournament_standings")
+}
+
+// =============================================================================
+// MODULE 3: ENHANCED TEAM MANAGEMENT
+// =============================================================================
+
+// Update existing Team model with new relations
+model TeamExtended {
+  id                     String                    @id @default(cuid())
+
+  // New relations for modular architecture
+  clubId                 String?                   @map("club_id")
+  registrations          TournamentRegistration[]
+  homeMatches            Match[]                   @relation("HomeMatches")
+  awayMatches            Match[]                   @relation("AwayMatches")
+  standings              TournamentStanding[]
+  trainingSessions       TrainingSession[]
+
+  // Relations to Club
+  club                   Club?                     @relation(fields: [clubId], references: [id])
+
+  @@map("teams_extended")
+}
+
+model TrainingSession {
+  id               String            @id @default(cuid())
+  clubSeasonId     String?           @map("club_season_id")
+  teamId           String?           @map("team_id")
+
+  // Session Details
+  title            String
+  sessionType      TrainingType      // BATTING, BOWLING, FIELDING, FITNESS, TACTICAL
+  description      String?
+
+  // Schedule
+  scheduledAt      DateTime          @map("scheduled_at")
+  duration         Int               // Duration in minutes
+  venueId          String?           @map("venue_id")
+
+  // Participants
+  coachId          String?           @map("coach_id")
+  attendees        String[]          // Array of player IDs
+  maxParticipants  Int?              @map("max_participants")
+
+  // Content
+  drills           Json?             // Training drills and exercises
+  objectives       String[]          // Session objectives
+
+  // Status
+  status           SessionStatus     @default(SCHEDULED)
+
+  // Metadata
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  clubSeason       ClubSeason?       @relation(fields: [clubSeasonId], references: [id])
+  team             Team?             @relation(fields: [teamId], references: [id])
+  venue            Facility?         @relation(fields: [venueId], references: [id])
+
+  @@map("training_sessions")
+}
+
+// =============================================================================
+// MODULE 4: FINANCIAL MANAGEMENT
+// =============================================================================
+
+model Subscription {
+  id               String            @id @default(cuid())
+  organizationId   String            @map("organization_id")
+
+  // Subscription Details
+  tier             SubscriptionTier  // FREE, BASIC, PRO, ENTERPRISE
+  billingCycle     BillingCycle      // MONTHLY, QUARTERLY, YEARLY
+
+  // Pricing
+  basePrice        Float             @map("base_price")
+  discountPercent  Float?            @default(0) @map("discount_percent")
+  finalPrice       Float             @map("final_price")
+  currency         String            @default("USD")
+
+  // Status & Dates
+  status           SubscriptionStatus @default(ACTIVE)
+  startDate        DateTime          @map("start_date")
+  endDate          DateTime?         @map("end_date")
+  trialEndDate     DateTime?         @map("trial_end_date")
+
+  // Features
+  enabledModules   String[]          @map("enabled_modules")
+  featureLimits    Json?             @map("feature_limits") // e.g., max players, tournaments
+
+  // Payment
+  paymentMethod    String?           @map("payment_method")
+  lastPaymentDate  DateTime?         @map("last_payment_date")
+  nextPaymentDate  DateTime?         @map("next_payment_date")
+
+  // Metadata
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model ClubFinance {
+  id               String           @id @default(cuid())
+  clubId           String           @map("club_id")
+
+  // Transaction Details
+  transactionType  TransactionType  // INCOME, EXPENSE, TRANSFER
+  category         String           // e.g., "Membership Fees", "Equipment", "Travel"
+  description      String
+  amount           Float
+  currency         String           @default("USD")
+
+  // Date & Reference
+  transactionDate  DateTime         @map("transaction_date")
+  referenceNumber  String?          @map("reference_number")
+
+  // Payment Details
+  paymentMethod    String?          @map("payment_method")
+  paidBy           String?          @map("paid_by") // User ID
+  approvedBy       String?          @map("approved_by") // User ID
+
+  // Status
+  status           TransactionStatus @default(COMPLETED)
+
+  // Attachments
+  receipts         String[]         // Array of file URLs
+
+  // Metadata
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  club             Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@map("club_finances")
+}
+
+// =============================================================================
+// MODULE 5: STATISTICS & ANALYTICS
+// =============================================================================
+
+model ClubSeasonStats {
+  id               String       @id @default(cuid())
+  clubSeasonId     String       @map("club_season_id")
+
+  // Match Statistics
+  matchesPlayed    Int          @default(0) @map("matches_played")
+  matchesWon       Int          @default(0) @map("matches_won")
+  matchesLost      Int          @default(0) @map("matches_lost")
+  matchesTied      Int          @default(0) @map("matches_tied")
+
+  // Performance Metrics
+  totalRuns        Int          @default(0) @map("total_runs")
+  totalWickets     Int          @default(0) @map("total_wickets")
+  highestScore     Int?         @map("highest_score")
+  lowestScore      Int?         @map("lowest_score")
+
+  // Additional Stats
+  averageScore     Float?       @map("average_score")
+  strikeRate       Float?       @map("strike_rate")
+  economyRate      Float?       @map("economy_rate")
+
+  // Metadata
+  lastUpdated      DateTime     @updatedAt @map("last_updated")
+
+  // Relations
+  clubSeason       ClubSeason   @relation(fields: [clubSeasonId], references: [id], onDelete: Cascade)
+
+  @@unique([clubSeasonId])
+  @@map("club_season_stats")
+}
+
+// =============================================================================
+// ENUMS FOR NEW MODULES
+// =============================================================================
+
+enum OrgType {
+  CLUB
+  LEAGUE
+  TOURNAMENT_ORGANIZER
+  ACADEMY
+  ASSOCIATION
+  FEDERATION
+}
+
+enum ClubType {
+  PROFESSIONAL
+  AMATEUR
+  SCHOOL
+  ACADEMY
+  CORPORATE
+  RECREATIONAL
+}
+
+enum AgeGroup {
+  SENIOR      // 18+
+  YOUTH       // 15-18
+  JUNIOR      // 12-15
+  VETERANS    // 40+
+  MIXED
+}
+
+enum FacilityType {
+  GROUND
+  PRACTICE_NET
+  GYM
+  PAVILION
+  TRAINING_FACILITY
+  INDOOR_FACILITY
+  ACADEMY
+}
+
+enum BookingType {
+  TRAINING
+  MATCH
+  EVENT
+  MAINTENANCE
+  PRIVATE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum TournamentType {
+  KNOCKOUT
+  ROUND_ROBIN
+  HYBRID
+  LEAGUE
+  DOUBLE_ELIMINATION
+}
+
+enum GameFormat {
+  T20
+  ODI
+  TEST
+  T10
+  HUNDRED
+  LIST_A
+  FIRST_CLASS
+}
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  ONGOING
+  COMPLETED
+  CANCELLED
+  POSTPONED
+}
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  REFUNDED
+  FAILED
+}
+
+enum MatchType {
+  LEAGUE
+  QUALIFIER
+  ELIMINATOR
+  FINAL
+  FRIENDLY
+  PRACTICE
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  POSTPONED
+  ABANDONED
+}
+
+enum SeasonStatus {
+  PLANNED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum TrainingType {
+  BATTING
+  BOWLING
+  FIELDING
+  FITNESS
+  TACTICAL
+  GENERAL
+}
+
+enum SessionStatus {
+  SCHEDULED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  SUSPENDED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
