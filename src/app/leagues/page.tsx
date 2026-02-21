@@ -42,6 +42,8 @@ interface LeagueSummary {
 const LEAGUE_TYPE_COLORS: Record<LeagueType, string> = {
   TOURNAMENT: 'bg-warning/10 text-warning',
   LEAGUE: 'bg-info/10 text-info-foreground',
+  SEASONAL: 'bg-success/10 text-success',
+  CHAMPIONSHIP: 'bg-primary/10 text-primary',
 }
 
 const LEAGUE_STATUS_COLORS: Record<LeagueStatus, string> = {
