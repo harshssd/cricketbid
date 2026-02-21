@@ -17,7 +17,7 @@ export function AuctionNameQuestion({ value, onChange }: AuctionNameQuestionProp
   return (
     <div className="max-w-md mx-auto">
       <div className="mb-6">
-        <label className="block text-lg font-medium text-gray-300 mb-4">
+        <label className="block text-lg font-medium text-muted-foreground mb-4">
           Auction name
         </label>
 
@@ -28,11 +28,11 @@ export function AuctionNameQuestion({ value, onChange }: AuctionNameQuestionProp
           onClick={handleInputClick}
           placeholder="e.g| Summer Cricket Championship"
           maxLength={50}
-          className="w-full h-16 text-2xl text-center bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
+          className="w-full h-16 text-2xl text-center rounded-lg"
         />
       </div>
 
-      <div className="text-center text-gray-400 text-sm">
+      <div className="text-center text-muted-foreground text-sm">
         {value.length}/50 characters
         {value.length < 3 && <div className="text-orange-400 mt-1">At least 3 characters required</div>}
       </div>

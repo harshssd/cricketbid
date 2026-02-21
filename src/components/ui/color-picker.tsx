@@ -80,7 +80,7 @@ export function ColorPicker({
           >
             <div className="flex items-center space-x-3">
               <div
-                className="w-6 h-6 rounded border border-gray-300"
+                className="w-6 h-6 rounded border border-border"
                 style={{ backgroundColor: isValidHex(customColor) ? customColor : '#3B82F6' }}
               />
               <span className="text-sm font-mono">
@@ -95,7 +95,7 @@ export function ColorPicker({
             {/* Preset Colors */}
             {showPresets && (
               <div className="space-y-2">
-                <Label className="text-xs font-medium text-gray-600">Preset Colors</Label>
+                <Label className="text-xs font-medium text-muted-foreground">Preset Colors</Label>
                 <div className="grid grid-cols-8 gap-2">
                   {PRESET_COLORS.map((color) => (
                     <button
@@ -104,8 +104,8 @@ export function ColorPicker({
                       className={cn(
                         "w-8 h-8 rounded border-2 transition-all hover:scale-110",
                         customColor === color
-                          ? "border-gray-900 dark:border-white scale-110"
-                          : "border-gray-300 hover:border-gray-400"
+                          ? "border-foreground scale-110"
+                          : "border-border hover:border-ring"
                       )}
                       style={{ backgroundColor: color }}
                       title={color}
@@ -117,7 +117,7 @@ export function ColorPicker({
 
             {/* Custom Color Input */}
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-gray-600">Custom Color</Label>
+              <Label className="text-xs font-medium text-muted-foreground">Custom Color</Label>
               <div className="flex space-x-2">
                 <div className="relative flex-1">
                   <Input
@@ -137,7 +137,7 @@ export function ColorPicker({
                   type="color"
                   value={isValidHex(customColor) ? customColor : '#3B82F6'}
                   onChange={(e) => handleColorChange(e.target.value)}
-                  className="w-10 h-10 border border-gray-300 rounded cursor-pointer"
+                  className="w-10 h-10 border border-border rounded cursor-pointer"
                 />
               </div>
             </div>
@@ -189,8 +189,8 @@ export function ColorSwatch({
             sizeClasses[size],
             "rounded border-2 transition-all hover:scale-110",
             selectedColor === color
-              ? "border-gray-900 dark:border-white scale-110"
-              : "border-gray-300 hover:border-gray-400"
+              ? "border-foreground scale-110"
+              : "border-border hover:border-ring"
           )}
           style={{ backgroundColor: color }}
           title={color}

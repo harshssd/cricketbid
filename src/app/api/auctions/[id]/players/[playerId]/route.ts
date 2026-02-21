@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 
 interface RouteParams {
@@ -23,6 +23,8 @@ export async function PUT(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
+
     const { id: auctionId, playerId } = await params
     const body = await request.json()
 
@@ -40,15 +42,19 @@ export async function PUT(
     }
 
     // Check if auction exists and user has permission
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        participations: {
-          where: { userId },
-          select: { role: true }
-        }
-      }
-    })
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select(`
+        *,
+        participations:auction_participations!auction_id(role)
+      `)
+      .eq('id', auctionId)
+      .eq('auction_participations.user_id', userId)
+      .maybeSingle()
+
+    if (auctionError) {
+      throw auctionError
+    }
 
     if (!auction) {
       return NextResponse.json(
@@ -58,8 +64,8 @@ export async function PUT(
     }
 
     // Check if user has permission (auction owner or participant with appropriate role)
-    const userParticipant = auction.participations[0]
-    const canManage = auction.ownerId === userId ||
+    const userParticipant = auction.participations?.[0]
+    const canManage = auction.owner_id === userId ||
                      (userParticipant && ['OWNER', 'MODERATOR', 'CAPTAIN'].includes(userParticipant.role))
 
     if (!canManage) {
@@ -78,12 +84,16 @@ export async function PUT(
     }
 
     // Check if player exists and belongs to this auction
-    const existingPlayer = await prisma.player.findFirst({
-      where: {
-        id: playerId,
-        auctionId: auctionId
-      }
-    })
+    const { data: existingPlayer, error: playerError } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', playerId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (playerError) {
+      throw playerError
+    }
 
     if (!existingPlayer) {
       return NextResponse.json(
@@ -94,12 +104,16 @@ export async function PUT(
 
     // Validate tier if provided
     if (validatedData.tierId) {
-      const tier = await prisma.tier.findFirst({
-        where: {
-          id: validatedData.tierId,
-          auctionId: auctionId
-        }
-      })
+      const { data: tier, error: tierError } = await supabase
+        .from('tiers')
+        .select('*')
+        .eq('id', validatedData.tierId)
+        .eq('auction_id', auctionId)
+        .maybeSingle()
+
+      if (tierError) {
+        throw tierError
+      }
 
       if (!tier) {
         return NextResponse.json(
@@ -127,20 +141,20 @@ export async function PUT(
       }
 
       if (roles.length > 0) {
-        // Store primary role in playingRole field
-        updateData.playingRole = roles[0] as 'BATSMAN' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKETKEEPER'
+        // Store primary role in playing_role field
+        updateData.playing_role = roles[0]
 
-        // Store all roles in customTags as comma-separated string
-        const existingTags = validatedData.customTags || existingPlayer.customTags || ''
+        // Store all roles in custom_tags as comma-separated string
+        const existingTags = validatedData.customTags || existingPlayer.custom_tags || ''
         const roleString = roles.join(',')
 
         // If we have existing custom tags that aren't roles, preserve them
         const existingNonRoleTags = existingTags.split(',')
-          .map(t => t.trim())
-          .filter(t => t && !validRoles.includes(t))
+          .map((t: string) => t.trim())
+          .filter((t: string) => t && !validRoles.includes(t))
           .join(',')
 
-        updateData.customTags = existingNonRoleTags
+        updateData.custom_tags = existingNonRoleTags
           ? `${roleString},${existingNonRoleTags}`
           : roleString
       }
@@ -148,41 +162,27 @@ export async function PUT(
 
     // Add other fields to update
     if (validatedData.name) updateData.name = validatedData.name
-    if (validatedData.tierId) updateData.tierId = validatedData.tierId
+    if (validatedData.tierId) updateData.tier_id = validatedData.tierId
     if (validatedData.customTags !== undefined && !validatedData.playingRole) {
-      updateData.customTags = validatedData.customTags
+      updateData.custom_tags = validatedData.customTags
     }
 
     // Update the player
-    const updatedPlayer = await prisma.player.update({
-      where: { id: playerId },
-      data: updateData,
-      include: {
-        tier: {
-          select: {
-            id: true,
-            name: true,
-            basePrice: true,
-            color: true,
-          }
-        },
-        assignedTeam: {
-          select: {
-            id: true,
-            name: true,
-            primaryColor: true,
-          }
-        },
-        linkedUser: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-          }
-        }
-      }
-    })
+    const { data: updatedPlayer, error: updateError } = await supabase
+      .from('players')
+      .update(updateData)
+      .eq('id', playerId)
+      .select(`
+        *,
+        tier:tiers!tier_id(id, name, base_price, color),
+        assigned_team:teams!assigned_team_id(id, name, primary_color),
+        linked_user:users!user_id(id, name, email, image)
+      `)
+      .single()
+
+    if (updateError) {
+      throw updateError
+    }
 
     return NextResponse.json({
       success: true,
@@ -216,39 +216,25 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
+
     const { id: auctionId, playerId } = await params
 
-    const player = await prisma.player.findFirst({
-      where: {
-        id: playerId,
-        auctionId: auctionId
-      },
-      include: {
-        tier: {
-          select: {
-            id: true,
-            name: true,
-            basePrice: true,
-            color: true,
-          }
-        },
-        assignedTeam: {
-          select: {
-            id: true,
-            name: true,
-            primaryColor: true,
-          }
-        },
-        linkedUser: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-          }
-        }
-      }
-    })
+    const { data: player, error } = await supabase
+      .from('players')
+      .select(`
+        *,
+        tier:tiers!tier_id(id, name, base_price, color),
+        assigned_team:teams!assigned_team_id(id, name, primary_color),
+        linked_user:users!user_id(id, name, email, image)
+      `)
+      .eq('id', playerId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (error) {
+      throw error
+    }
 
     if (!player) {
       return NextResponse.json(
@@ -277,6 +263,8 @@ export async function DELETE(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
+
     const { id: auctionId, playerId } = await params
 
     // Get authenticated user
@@ -290,15 +278,19 @@ export async function DELETE(
     }
 
     // Check if auction exists and user has permission
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        participations: {
-          where: { userId },
-          select: { role: true }
-        }
-      }
-    })
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select(`
+        *,
+        participations:auction_participations!auction_id(role)
+      `)
+      .eq('id', auctionId)
+      .eq('auction_participations.user_id', userId)
+      .maybeSingle()
+
+    if (auctionError) {
+      throw auctionError
+    }
 
     if (!auction) {
       return NextResponse.json(
@@ -308,8 +300,8 @@ export async function DELETE(
     }
 
     // Check permission
-    const userParticipant = auction.participations[0]
-    const canManage = auction.ownerId === userId ||
+    const userParticipant = auction.participations?.[0]
+    const canManage = auction.owner_id === userId ||
                      (userParticipant && ['OWNER', 'MODERATOR', 'CAPTAIN'].includes(userParticipant.role))
 
     if (!canManage) {
@@ -328,12 +320,16 @@ export async function DELETE(
     }
 
     // Check if player exists and belongs to this auction
-    const existingPlayer = await prisma.player.findFirst({
-      where: {
-        id: playerId,
-        auctionId: auctionId
-      }
-    })
+    const { data: existingPlayer, error: playerError } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', playerId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (playerError) {
+      throw playerError
+    }
 
     if (!existingPlayer) {
       return NextResponse.json(
@@ -343,9 +339,14 @@ export async function DELETE(
     }
 
     // Delete the player
-    await prisma.player.delete({
-      where: { id: playerId }
-    })
+    const { error: deleteError } = await supabase
+      .from('players')
+      .delete()
+      .eq('id', playerId)
+
+    if (deleteError) {
+      throw deleteError
+    }
 
     return NextResponse.json({
       success: true,

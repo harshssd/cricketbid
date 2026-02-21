@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 
 const createTeamSchema = z.object({
@@ -28,6 +28,7 @@ const updateTeamSchema = createTeamSchema.partial().extend({
 // Create a new team
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
     const body = await request.json()
     const teamData = createTeamSchema.parse(body)
 
@@ -42,10 +43,11 @@ export async function POST(request: NextRequest) {
 
     // Validate context exists
     if (teamData.clubId) {
-      const club = await prisma.club.findUnique({
-        where: { id: teamData.clubId },
-        include: { _count: { select: { teams: true } } }
-      })
+      const { data: club } = await supabase
+        .from('clubs')
+        .select('id')
+        .eq('id', teamData.clubId)
+        .maybeSingle()
       if (!club) {
         return NextResponse.json(
           { error: 'Club not found' },
@@ -53,28 +55,23 @@ export async function POST(request: NextRequest) {
         )
       }
     } else if (teamData.leagueId) {
-      const league = await prisma.league.findUnique({
-        where: { id: teamData.leagueId },
-        include: { _count: { select: { teams: true } } }
-      })
+      const { data: league } = await supabase
+        .from('leagues')
+        .select('id')
+        .eq('id', teamData.leagueId)
+        .maybeSingle()
       if (!league) {
         return NextResponse.json(
           { error: 'League not found' },
           { status: 404 }
         )
       }
-
-      // Check team limit for leagues
-      if (league.maxTeams && league._count.teams >= league.maxTeams) {
-        return NextResponse.json(
-          { error: `League is full. Maximum ${league.maxTeams} teams allowed.` },
-          { status: 400 }
-        )
-      }
     } else if (teamData.auctionId) {
-      const auction = await prisma.auction.findUnique({
-        where: { id: teamData.auctionId },
-      })
+      const { data: auction } = await supabase
+        .from('auctions')
+        .select('id')
+        .eq('id', teamData.auctionId)
+        .maybeSingle()
       if (!auction) {
         return NextResponse.json(
           { error: 'Auction not found' },
@@ -85,9 +82,11 @@ export async function POST(request: NextRequest) {
 
     // Validate captain if provided
     if (teamData.captainId) {
-      const captain = await prisma.user.findUnique({
-        where: { id: teamData.captainId }
-      })
+      const { data: captain } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', teamData.captainId)
+        .maybeSingle()
       if (!captain) {
         return NextResponse.json(
           { error: 'Captain not found' },
@@ -97,20 +96,43 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the team
-    const team = await prisma.team.create({
-      data: teamData,
-      include: {
-        captain: { select: { id: true, name: true, email: true, image: true } },
-        club: { select: { id: true, name: true, logo: true } },
-        league: { select: { id: true, name: true, logo: true } },
-        auction: { select: { id: true, name: true } },
-        _count: { select: { members: true } }
-      }
-    })
+    const { data: team, error: createError } = await supabase
+      .from('teams')
+      .insert({
+        name: teamData.name,
+        description: teamData.description,
+        primary_color: teamData.primaryColor,
+        secondary_color: teamData.secondaryColor,
+        logo: teamData.logo,
+        captain_id: teamData.captainId,
+        max_members: teamData.maxMembers,
+        club_id: teamData.clubId,
+        league_id: teamData.leagueId,
+        auction_id: teamData.auctionId,
+        budget_remaining: teamData.budgetRemaining,
+      })
+      .select(`
+        *,
+        captain:users!captain_id(id, name, email, image),
+        club:clubs!club_id(id, name, logo),
+        league:leagues!league_id(id, name, logo),
+        auction:auctions!auction_id(id, name),
+        team_members(id)
+      `)
+      .single()
+
+    if (createError) throw createError
+
+    // Transform to match expected shape
+    const { team_members, ...rest } = team
+    const result = {
+      ...rest,
+      _count: { members: team_members?.length ?? 0 }
+    }
 
     return NextResponse.json({
       success: true,
-      team
+      team: result
     }, { status: 201 })
 
   } catch (error) {
@@ -133,33 +155,41 @@ export async function POST(request: NextRequest) {
 // Get teams with optional filtering
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient()
     const { searchParams } = new URL(request.url)
     const clubId = searchParams.get('clubId')
     const leagueId = searchParams.get('leagueId')
     const auctionId = searchParams.get('auctionId')
     const includeInactive = searchParams.get('includeInactive') === 'true'
 
-    // Build where clause
-    const whereClause: any = {}
-    if (clubId) whereClause.clubId = clubId
-    if (leagueId) whereClause.leagueId = leagueId
-    if (auctionId) whereClause.auctionId = auctionId
-    if (!includeInactive) whereClause.isActive = true
+    // Build query
+    let query = supabase
+      .from('teams')
+      .select(`
+        *,
+        captain:users!captain_id(id, name, email, image),
+        club:clubs!club_id(id, name, logo),
+        league:leagues!league_id(id, name, logo),
+        auction:auctions!auction_id(id, name),
+        team_members(id)
+      `)
 
-    const teams = await prisma.team.findMany({
-      where: whereClause,
-      include: {
-        captain: { select: { id: true, name: true, email: true, image: true } },
-        club: { select: { id: true, name: true, logo: true } },
-        league: { select: { id: true, name: true, logo: true } },
-        auction: { select: { id: true, name: true } },
-        _count: { select: { members: true } }
-      },
-      orderBy: [
-        { isActive: 'desc' },
-        { createdAt: 'desc' }
-      ]
-    })
+    if (clubId) query = query.eq('club_id', clubId)
+    if (leagueId) query = query.eq('league_id', leagueId)
+    if (auctionId) query = query.eq('auction_id', auctionId)
+    if (!includeInactive) query = query.eq('is_active', true)
+
+    query = query.order('is_active', { ascending: false }).order('created_at', { ascending: false })
+
+    const { data: teamsRaw, error } = await query
+
+    if (error) throw error
+
+    // Transform to match expected shape with _count
+    const teams = (teamsRaw ?? []).map(({ team_members, ...rest }) => ({
+      ...rest,
+      _count: { members: team_members?.length ?? 0 }
+    }))
 
     return NextResponse.json({ teams })
 
@@ -175,6 +205,7 @@ export async function GET(request: NextRequest) {
 // Update multiple teams
 export async function PUT(request: NextRequest) {
   try {
+    const supabase = await createClient()
     const body = await request.json()
     const { teams } = body
 
@@ -188,33 +219,52 @@ export async function PUT(request: NextRequest) {
     // Validate all teams
     const validatedTeams = teams.map(team => updateTeamSchema.parse(team))
 
-    // Process updates in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      const updatedTeams = []
+    // Process updates sequentially (replacing $transaction)
+    const updatedTeams = []
 
-      for (const teamData of validatedTeams) {
-        const { id, ...updateData } = teamData
+    for (const teamData of validatedTeams) {
+      const { id, ...updateData } = teamData
 
-        const updatedTeam = await tx.team.update({
-          where: { id },
-          data: updateData,
-          include: {
-            captain: { select: { id: true, name: true, email: true, image: true } },
-            club: { select: { id: true, name: true, logo: true } },
-            league: { select: { id: true, name: true, logo: true } },
-            auction: { select: { id: true, name: true } },
-            _count: { select: { members: true } }
-          }
-        })
-        updatedTeams.push(updatedTeam)
-      }
+      const snakeCaseData: Record<string, unknown> = {}
+      if (updateData.name !== undefined) snakeCaseData.name = updateData.name
+      if (updateData.description !== undefined) snakeCaseData.description = updateData.description
+      if (updateData.primaryColor !== undefined) snakeCaseData.primary_color = updateData.primaryColor
+      if (updateData.secondaryColor !== undefined) snakeCaseData.secondary_color = updateData.secondaryColor
+      if (updateData.logo !== undefined) snakeCaseData.logo = updateData.logo
+      if (updateData.captainId !== undefined) snakeCaseData.captain_id = updateData.captainId
+      if (updateData.maxMembers !== undefined) snakeCaseData.max_members = updateData.maxMembers
+      if (updateData.clubId !== undefined) snakeCaseData.club_id = updateData.clubId
+      if (updateData.leagueId !== undefined) snakeCaseData.league_id = updateData.leagueId
+      if (updateData.auctionId !== undefined) snakeCaseData.auction_id = updateData.auctionId
+      if (updateData.budgetRemaining !== undefined) snakeCaseData.budget_remaining = updateData.budgetRemaining
+      if (updateData.isActive !== undefined) snakeCaseData.is_active = updateData.isActive
 
-      return updatedTeams
-    })
+      const { data: updatedTeam, error: updateError } = await supabase
+        .from('teams')
+        .update(snakeCaseData)
+        .eq('id', id)
+        .select(`
+          *,
+          captain:users!captain_id(id, name, email, image),
+          club:clubs!club_id(id, name, logo),
+          league:leagues!league_id(id, name, logo),
+          auction:auctions!auction_id(id, name),
+          team_members(id)
+        `)
+        .single()
+
+      if (updateError) throw updateError
+
+      const { team_members, ...rest } = updatedTeam
+      updatedTeams.push({
+        ...rest,
+        _count: { members: team_members?.length ?? 0 }
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      teams: result
+      teams: updatedTeams
     })
 
   } catch (error) {

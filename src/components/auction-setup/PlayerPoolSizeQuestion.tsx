@@ -1,63 +1,68 @@
-import { useState } from 'react'
-import { Input } from '@/components/ui/input'
+'use client'
+
+import { motion, AnimatePresence } from 'framer-motion'
+import { Slider } from '@/components/ui/slider'
 
 interface PlayerPoolSizeQuestionProps {
   value: number
   onChange: (value: number) => void
 }
 
+const ticks = [20, 50, 100, 150, 200]
+
 export function PlayerPoolSizeQuestion({ value, onChange }: PlayerPoolSizeQuestionProps) {
-  const [inputValue, setInputValue] = useState(value.toString())
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value
-    setInputValue(newValue)
-
-    // Only update parent if it's a valid number
-    const numValue = parseInt(newValue)
-    if (!isNaN(numValue) && numValue > 0) {
-      onChange(numValue)
-    }
-  }
-
-  const handleInputClick = (e: React.MouseEvent<HTMLInputElement>) => {
-    e.currentTarget.select()
-  }
-
   return (
     <div className="max-w-md mx-auto">
-      <div className="mb-6">
-        <label className="block text-lg font-medium text-gray-300 mb-4">
-          Number of player pool size
+      <div className="mb-8">
+        <label className="block text-lg font-medium text-muted-foreground mb-6">
+          Number of players in the pool
         </label>
 
-        <div className="relative">
-          <Input
-            type="number"
-            value={inputValue}
-            onChange={handleInputChange}
-            onClick={handleInputClick}
-            placeholder="e.g| 50"
-            min="8"
-            max="200"
-            className="w-full h-16 text-2xl text-center bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
-          />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2">
-            <button
-              className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white"
-              onClick={() => {
-                const newVal = Math.max(8, value - 1)
-                setInputValue(newVal.toString())
-                onChange(newVal)
-              }}
+        {/* Large animated number display */}
+        <div className="flex justify-center mb-8">
+          <AnimatePresence mode="popLayout">
+            <motion.span
+              key={value}
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 10, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="text-6xl font-bold text-foreground tabular-nums"
             >
-              ▼
+              {value}
+            </motion.span>
+          </AnimatePresence>
+        </div>
+
+        {/* Slider */}
+        <Slider
+          value={[value]}
+          onValueChange={([v]) => onChange(v)}
+          min={8}
+          max={200}
+          step={1}
+          className="mb-4"
+        />
+
+        {/* Tick marks */}
+        <div className="flex justify-between px-1">
+          {ticks.map((tick) => (
+            <button
+              key={tick}
+              onClick={() => onChange(tick)}
+              className={`text-xs transition-colors ${
+                value === tick
+                  ? 'text-primary font-bold'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tick}
             </button>
-          </div>
+          ))}
         </div>
       </div>
 
-      <div className="text-center text-gray-400 text-sm">
+      <div className="text-center text-muted-foreground text-sm">
         Between 8 and 200
       </div>
     </div>

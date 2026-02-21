@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 
 interface RouteParams {
@@ -22,6 +22,7 @@ export async function PUT(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { id: auctionId } = await params
     const body = await request.json()
 
@@ -29,10 +30,11 @@ export async function PUT(
     const teams = updateTeamsSchema.parse(body.teams || body)
 
     // Check if auction exists and is editable
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: { teams: true }
-    })
+    const { data: auction } = await supabase
+      .from('auctions')
+      .select('*, teams:teams(*)')
+      .eq('id', auctionId)
+      .maybeSingle()
 
     if (!auction) {
       return NextResponse.json(
@@ -48,83 +50,104 @@ export async function PUT(
       )
     }
 
-    // Update teams in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Get existing team IDs
-      const existingTeamIds = auction.teams.map(team => team.id)
+    // Get existing team IDs
+    const existingTeamIds = (auction.teams || []).map((team: { id: string }) => team.id)
 
-      // Process team updates/creations
-      const updatedTeams = []
-      const providedTeamIds = teams
-        .filter(team => team.id)
-        .map(team => team.id!)
+    // Process team updates/creations
+    const updatedTeams = []
+    const providedTeamIds = teams
+      .filter(team => team.id)
+      .map(team => team.id!)
 
-      // Update or create teams
-      for (const teamData of teams) {
-        if (teamData.id && existingTeamIds.includes(teamData.id)) {
-          // Update existing team
-          const updatedTeam = await tx.team.update({
-            where: { id: teamData.id },
-            data: {
-              name: teamData.name,
-              description: teamData.description,
-              primaryColor: teamData.primaryColor,
-              secondaryColor: teamData.secondaryColor,
-              logo: teamData.logo,
-              ...(teamData.captainId !== undefined && {
-                captainId: teamData.captainId
-              }),
-              ...(teamData.budgetRemaining !== undefined && {
-                budgetRemaining: teamData.budgetRemaining
-              })
-            },
-            include: {
-              captain: { select: { id: true, name: true, email: true, image: true } },
-              players: { select: { id: true, name: true, playingRole: true } },
-              _count: { select: { players: true, members: true } }
-            }
-          })
-          updatedTeams.push(updatedTeam)
-        } else {
-          // Create new team
-          const newTeam = await tx.team.create({
-            data: {
-              auctionId,
-              name: teamData.name,
-              description: teamData.description,
-              primaryColor: teamData.primaryColor,
-              secondaryColor: teamData.secondaryColor,
-              logo: teamData.logo,
-              captainId: teamData.captainId || undefined,
-              budgetRemaining: teamData.budgetRemaining || auction.budgetPerTeam,
-            },
-            include: {
-              captain: { select: { id: true, name: true, email: true, image: true } },
-              players: { select: { id: true, name: true, playingRole: true } },
-              _count: { select: { players: true, members: true } }
-            }
-          })
-          updatedTeams.push(newTeam)
+    const selectQuery = `
+      *,
+      captain:users!captain_id(id, name, email, image),
+      players(id, name, playing_role),
+      team_members(id)
+    `
+
+    // Update or create teams sequentially (replacing $transaction)
+    for (const teamData of teams) {
+      if (teamData.id && existingTeamIds.includes(teamData.id)) {
+        // Update existing team
+        const updateData: Record<string, unknown> = {
+          name: teamData.name,
+          description: teamData.description,
+          primary_color: teamData.primaryColor,
+          secondary_color: teamData.secondaryColor,
+          logo: teamData.logo,
         }
-      }
+        if (teamData.captainId !== undefined) {
+          updateData.captain_id = teamData.captainId
+        }
+        if (teamData.budgetRemaining !== undefined) {
+          updateData.budget_remaining = teamData.budgetRemaining
+        }
 
-      // Delete teams that are no longer in the list
-      const teamsToDelete = existingTeamIds.filter(id => !providedTeamIds.includes(id))
-      if (teamsToDelete.length > 0) {
-        await tx.team.deleteMany({
-          where: {
-            id: { in: teamsToDelete },
-            auctionId
+        const { data: updatedTeam, error: updateError } = await supabase
+          .from('teams')
+          .update(updateData)
+          .eq('id', teamData.id)
+          .select(selectQuery)
+          .single()
+
+        if (updateError) throw updateError
+
+        const { players: playersRaw, team_members, ...rest } = updatedTeam
+        updatedTeams.push({
+          ...rest,
+          players: playersRaw ?? [],
+          _count: {
+            players: playersRaw?.length ?? 0,
+            members: team_members?.length ?? 0
+          }
+        })
+      } else {
+        // Create new team
+        const { data: newTeam, error: createError } = await supabase
+          .from('teams')
+          .insert({
+            auction_id: auctionId,
+            name: teamData.name,
+            description: teamData.description,
+            primary_color: teamData.primaryColor,
+            secondary_color: teamData.secondaryColor,
+            logo: teamData.logo,
+            captain_id: teamData.captainId || undefined,
+            budget_remaining: teamData.budgetRemaining || auction.budget_per_team,
+          })
+          .select(selectQuery)
+          .single()
+
+        if (createError) throw createError
+
+        const { players: playersRaw, team_members, ...rest } = newTeam
+        updatedTeams.push({
+          ...rest,
+          players: playersRaw ?? [],
+          _count: {
+            players: playersRaw?.length ?? 0,
+            members: team_members?.length ?? 0
           }
         })
       }
+    }
 
-      return updatedTeams
-    })
+    // Delete teams that are no longer in the list
+    const teamsToDelete = existingTeamIds.filter((id: string) => !providedTeamIds.includes(id))
+    if (teamsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('teams')
+        .delete()
+        .in('id', teamsToDelete)
+        .eq('auction_id', auctionId)
+
+      if (deleteError) throw deleteError
+    }
 
     return NextResponse.json({
       success: true,
-      teams: result
+      teams: updatedTeams
     })
 
   } catch (error) {
@@ -150,12 +173,14 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { id: auctionId } = await params
 
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      select: { status: true, budgetPerTeam: true }
-    })
+    const { data: auction } = await supabase
+      .from('auctions')
+      .select('status, budget_per_team')
+      .eq('id', auctionId)
+      .maybeSingle()
 
     if (!auction) {
       return NextResponse.json(
@@ -164,36 +189,42 @@ export async function GET(
       )
     }
 
-    const teams = await prisma.team.findMany({
-      where: { auctionId },
-      orderBy: { name: 'asc' },
-      include: {
-        captain: { select: { id: true, name: true, email: true, image: true } },
-        players: {
-          select: {
-            id: true,
-            name: true,
-            image: true,
-            playingRole: true,
-            tierId: true,
-            status: true,
-            tier: { select: { name: true, color: true } }
-          }
-        },
-        _count: {
-          select: {
-            players: true,
-            members: true,
-            participations: true
-          }
-        }
+    const { data: teamsRaw, error } = await supabase
+      .from('teams')
+      .select(`
+        *,
+        captain:users!captain_id(id, name, email, image),
+        players(
+          id,
+          name,
+          image,
+          playing_role,
+          tier_id,
+          status,
+          tier:tiers!tier_id(name, color)
+        ),
+        team_members(id),
+        auction_participations(id)
+      `)
+      .eq('auction_id', auctionId)
+      .order('name', { ascending: true })
+
+    if (error) throw error
+
+    // Transform to match expected shape with _count
+    const teams = (teamsRaw ?? []).map(({ team_members, auction_participations, ...rest }) => ({
+      ...rest,
+      _count: {
+        players: rest.players?.length ?? 0,
+        members: team_members?.length ?? 0,
+        participations: auction_participations?.length ?? 0
       }
-    })
+    }))
 
     return NextResponse.json({
       teams,
       auctionStatus: auction.status,
-      budgetPerTeam: auction.budgetPerTeam
+      budgetPerTeam: auction.budget_per_team
     })
 
   } catch (error) {

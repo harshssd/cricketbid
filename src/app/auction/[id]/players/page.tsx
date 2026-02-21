@@ -101,10 +101,10 @@ export default function AuctionPlayersPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'AVAILABLE': return 'bg-blue-100 text-blue-800'
-      case 'SOLD': return 'bg-green-100 text-green-800'
-      case 'UNSOLD': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'AVAILABLE': return 'bg-primary/10 text-primary'
+      case 'SOLD': return 'bg-success/10 text-success'
+      case 'UNSOLD': return 'bg-destructive/10 text-destructive'
+      default: return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -119,16 +119,16 @@ export default function AuctionPlayersPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-8 bg-muted rounded w-1/3" />
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-20 bg-gray-200 rounded" />
+              <div key={i} className="h-20 bg-muted rounded" />
             ))}
           </div>
-          <div className="h-12 bg-gray-200 rounded" />
+          <div className="h-12 bg-muted rounded" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
-              <div key={i} className="h-48 bg-gray-200 rounded" />
+              <div key={i} className="h-48 bg-muted rounded" />
             ))}
           </div>
         </div>
@@ -140,7 +140,7 @@ export default function AuctionPlayersPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card className="p-8 text-center">
-          <h2 className="text-xl font-semibold text-red-600 mb-2">Error</h2>
+          <h2 className="text-xl font-semibold text-destructive mb-2">Error</h2>
           <p className="text-muted-foreground">{auctionError || error}</p>
         </Card>
       </div>
@@ -207,19 +207,19 @@ export default function AuctionPlayersPage() {
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600 mb-1">{playersByStatus.available}</div>
+            <div className="text-2xl font-bold text-primary mb-1">{playersByStatus.available}</div>
             <div className="text-sm text-muted-foreground">Available</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-green-600 mb-1">{playersByStatus.sold}</div>
+            <div className="text-2xl font-bold text-success mb-1">{playersByStatus.sold}</div>
             <div className="text-sm text-muted-foreground">Sold</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-red-600 mb-1">{playersByStatus.unsold}</div>
+            <div className="text-2xl font-bold text-destructive mb-1">{playersByStatus.unsold}</div>
             <div className="text-sm text-muted-foreground">Unsold</div>
           </CardContent>
         </Card>

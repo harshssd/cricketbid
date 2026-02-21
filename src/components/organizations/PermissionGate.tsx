@@ -2,13 +2,10 @@ import { ReactNode } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Shield, Lock } from 'lucide-react'
 import { OrganizationRole } from '@/lib/types'
-import { Permission, hasPermission, hasAnyPermission, hasAllPermissions } from '@/lib/permissions'
 
 interface PermissionGateProps {
   userRole: OrganizationRole | null | undefined
-  permission?: Permission
-  permissions?: Permission[]
-  requireAll?: boolean
+  requiredRole?: OrganizationRole
   children: ReactNode
   fallback?: ReactNode
   showError?: boolean
@@ -16,30 +13,19 @@ interface PermissionGateProps {
 }
 
 /**
- * PermissionGate component that conditionally renders children based on user permissions
+ * PermissionGate component that conditionally renders children based on user role.
+ * With the simplified role model (OWNER | MEMBER), access is granted if the user's
+ * role matches or exceeds the required role (OWNER > MEMBER).
  */
 export function PermissionGate({
   userRole,
-  permission,
-  permissions,
-  requireAll = false,
+  requiredRole,
   children,
   fallback = null,
   showError = false,
   errorMessage = "You don't have permission to view this content."
 }: PermissionGateProps) {
-  let hasAccess = false
-
-  if (permission) {
-    hasAccess = hasPermission(userRole, permission)
-  } else if (permissions && permissions.length > 0) {
-    hasAccess = requireAll
-      ? hasAllPermissions(userRole, permissions)
-      : hasAnyPermission(userRole, permissions)
-  } else {
-    // If no permissions specified, allow access
-    hasAccess = true
-  }
+  const hasAccess = checkAccess(userRole, requiredRole)
 
   if (hasAccess) {
     return <>{children}</>
@@ -59,37 +45,23 @@ export function PermissionGate({
 
 interface PermissionButtonProps {
   userRole: OrganizationRole | null | undefined
-  permission?: Permission
-  permissions?: Permission[]
-  requireAll?: boolean
+  requiredRole?: OrganizationRole
   children: ReactNode
   fallback?: ReactNode
   disabledTooltip?: string
 }
 
 /**
- * PermissionButton that shows/hides or disables buttons based on permissions
+ * PermissionButton that shows/hides buttons based on role
  */
 export function PermissionButton({
   userRole,
-  permission,
-  permissions,
-  requireAll = false,
+  requiredRole,
   children,
   fallback = null,
   disabledTooltip = "You don't have permission to perform this action."
 }: PermissionButtonProps) {
-  let hasAccess = false
-
-  if (permission) {
-    hasAccess = hasPermission(userRole, permission)
-  } else if (permissions && permissions.length > 0) {
-    hasAccess = requireAll
-      ? hasAllPermissions(userRole, permissions)
-      : hasAnyPermission(userRole, permissions)
-  } else {
-    hasAccess = true
-  }
+  const hasAccess = checkAccess(userRole, requiredRole)
 
   if (!hasAccess) {
     return <>{fallback}</>
@@ -101,8 +73,6 @@ export function PermissionButton({
 interface RoleBasedRenderProps {
   userRole: OrganizationRole | null | undefined
   ownerContent?: ReactNode
-  adminContent?: ReactNode
-  moderatorContent?: ReactNode
   memberContent?: ReactNode
   fallback?: ReactNode
 }
@@ -113,18 +83,12 @@ interface RoleBasedRenderProps {
 export function RoleBasedRender({
   userRole,
   ownerContent,
-  adminContent,
-  moderatorContent,
   memberContent,
   fallback = null
 }: RoleBasedRenderProps) {
   switch (userRole) {
     case 'OWNER':
-      return <>{ownerContent || adminContent || moderatorContent || memberContent || fallback}</>
-    case 'ADMIN':
-      return <>{adminContent || moderatorContent || memberContent || fallback}</>
-    case 'MODERATOR':
-      return <>{moderatorContent || memberContent || fallback}</>
+      return <>{ownerContent || memberContent || fallback}</>
     case 'MEMBER':
       return <>{memberContent || fallback}</>
     default:
@@ -151,13 +115,9 @@ export function PermissionAlert({
   const getRoleColor = (role: OrganizationRole) => {
     switch (role) {
       case 'OWNER':
-        return 'text-yellow-700 bg-yellow-50 border-yellow-200'
-      case 'ADMIN':
-        return 'text-blue-700 bg-blue-50 border-blue-200'
-      case 'MODERATOR':
-        return 'text-green-700 bg-green-50 border-green-200'
+        return 'text-warning bg-warning/10 border-warning/30'
       case 'MEMBER':
-        return 'text-gray-700 bg-gray-50 border-gray-200'
+        return 'text-muted-foreground bg-muted border-border'
     }
   }
 
@@ -176,72 +136,44 @@ export function PermissionAlert({
   )
 }
 
+// Helper to check if a user role meets the required role
+function checkAccess(
+  userRole: OrganizationRole | null | undefined,
+  requiredRole?: OrganizationRole
+): boolean {
+  // If no required role specified, allow access
+  if (!requiredRole) return true
+  // If user has no role, deny access
+  if (!userRole) return false
+  // OWNER has access to everything
+  if (userRole === 'OWNER') return true
+  // MEMBER only has access if the required role is MEMBER
+  return userRole === requiredRole
+}
+
 // Export commonly used permission checks as utility components
-export const CanInviteMembers = ({ userRole, children, fallback }: {
+export const OwnerOnly = ({ userRole, children, fallback }: {
   userRole: OrganizationRole | null | undefined
   children: ReactNode
   fallback?: ReactNode
 }) => (
   <PermissionGate
     userRole={userRole}
-    permission={Permission.INVITE_MEMBERS}
+    requiredRole="OWNER"
     fallback={fallback}
   >
     {children}
   </PermissionGate>
 )
 
-export const CanManageMembers = ({ userRole, children, fallback }: {
+export const MemberOrAbove = ({ userRole, children, fallback }: {
   userRole: OrganizationRole | null | undefined
   children: ReactNode
   fallback?: ReactNode
 }) => (
   <PermissionGate
     userRole={userRole}
-    permission={Permission.REMOVE_MEMBERS}
-    fallback={fallback}
-  >
-    {children}
-  </PermissionGate>
-)
-
-export const CanCreateAuctions = ({ userRole, children, fallback }: {
-  userRole: OrganizationRole | null | undefined
-  children: ReactNode
-  fallback?: ReactNode
-}) => (
-  <PermissionGate
-    userRole={userRole}
-    permission={Permission.CREATE_AUCTIONS}
-    fallback={fallback}
-  >
-    {children}
-  </PermissionGate>
-)
-
-export const CanManageOrganization = ({ userRole, children, fallback }: {
-  userRole: OrganizationRole | null | undefined
-  children: ReactNode
-  fallback?: ReactNode
-}) => (
-  <PermissionGate
-    userRole={userRole}
-    permission={Permission.MANAGE_ORGANIZATION}
-    fallback={fallback}
-  >
-    {children}
-  </PermissionGate>
-)
-
-export const AdminOnly = ({ userRole, children, fallback }: {
-  userRole: OrganizationRole | null | undefined
-  children: ReactNode
-  fallback?: ReactNode
-}) => (
-  <PermissionGate
-    userRole={userRole}
-    permissions={[Permission.MANAGE_ORGANIZATION, Permission.UPDATE_ORGANIZATION_SETTINGS]}
-    requireAll={false}
+    requiredRole="MEMBER"
     fallback={fallback}
   >
     {children}

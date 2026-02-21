@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
 
 export interface AuthUser {
@@ -11,23 +10,18 @@ export interface AuthUser {
 
 export async function getUser(): Promise<AuthUser | null> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user }, error } = await supabase.auth.getUser()
 
     if (error || !user) {
       return null
     }
 
-    // Get user details from our database
-    const dbUser = await prisma.user.findUnique({
-      where: { email: user.email! },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-      }
-    })
+    const { data: dbUser } = await supabase
+      .from('users')
+      .select('id, name, email, image')
+      .eq('email', user.email!)
+      .maybeSingle()
 
     if (!dbUser) {
       return null
@@ -48,7 +42,7 @@ export async function getUserFromRequest(request: NextRequest): Promise<AuthUser
     }
 
     const token = authHeader.replace('Bearer ', '')
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data: { user }, error } = await supabase.auth.getUser(token)
 
@@ -56,16 +50,11 @@ export async function getUserFromRequest(request: NextRequest): Promise<AuthUser
       return null
     }
 
-    // Get user details from our database
-    const dbUser = await prisma.user.findUnique({
-      where: { email: user.email! },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-      }
-    })
+    const { data: dbUser } = await supabase
+      .from('users')
+      .select('id, name, email, image')
+      .eq('email', user.email!)
+      .maybeSingle()
 
     return dbUser ? { ...dbUser, image: dbUser.image ?? undefined } : null
   } catch (error) {
@@ -84,22 +73,16 @@ export interface AuctionPermissions {
 
 export async function getUserAuctionPermissions(
   userId: string | null,
-  auctionId: string,
-  passcode?: string
+  auctionId: string
 ): Promise<AuctionPermissions> {
   try {
-    // Get auction details
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      select: {
-        id: true,
-        visibility: true,
-        passcode: true,
-        ownerId: true,
-        status: true,
-        leagueId: true,
-      }
-    })
+    const supabase = await createClient()
+
+    const { data: auction } = await supabase
+      .from('auctions')
+      .select('id, visibility, owner_id, status, league_id')
+      .eq('id', auctionId)
+      .maybeSingle()
 
     if (!auction) {
       return { canView: false, canJoin: false, canModerate: false, canManage: false }
@@ -113,18 +96,16 @@ export async function getUserAuctionPermissions(
         return basePermissions
       }
 
-      // Check if user is owner
-      if (auction.ownerId === userId) {
+      if (auction.owner_id === userId) {
         return { canView: true, canJoin: true, canModerate: true, canManage: true, role: 'OWNER' }
       }
 
-      // Check if user has existing participation
-      const participation = await prisma.auctionParticipation.findFirst({
-        where: {
-          auctionId: auction.id,
-          userId: userId,
-        }
-      })
+      const { data: participation } = await supabase
+        .from('auction_participations')
+        .select('role')
+        .eq('auction_id', auction.id)
+        .eq('user_id', userId)
+        .maybeSingle()
 
       if (participation) {
         return {
@@ -144,18 +125,16 @@ export async function getUserAuctionPermissions(
       return { canView: false, canJoin: false, canModerate: false, canManage: false }
     }
 
-    // Check if user is owner
-    if (auction.ownerId === userId) {
+    if (auction.owner_id === userId) {
       return { canView: true, canJoin: true, canModerate: true, canManage: true, role: 'OWNER' }
     }
 
-    // Check if user has existing participation
-    const participation = await prisma.auctionParticipation.findFirst({
-      where: {
-        auctionId: auction.id,
-        userId: userId,
-      }
-    })
+    const { data: participation } = await supabase
+      .from('auction_participations')
+      .select('role')
+      .eq('auction_id', auction.id)
+      .eq('user_id', userId)
+      .maybeSingle()
 
     if (participation) {
       return {
@@ -167,25 +146,20 @@ export async function getUserAuctionPermissions(
       }
     }
 
-    // Check passcode if provided
-    if (passcode && auction.passcode === passcode) {
-      return { canView: true, canJoin: true, canModerate: false, canManage: false }
-    }
-
     // Check league membership for league auctions
-    if (auction.leagueId) {
-      const leagueMembership = await prisma.leagueMembership.findFirst({
-        where: {
-          leagueId: auction.leagueId,
-          userId: userId,
-        }
-      })
+    if (auction.league_id) {
+      const { data: leagueMembership } = await supabase
+        .from('league_memberships')
+        .select('role')
+        .eq('league_id', auction.league_id)
+        .eq('user_id', userId)
+        .maybeSingle()
 
       if (leagueMembership) {
         return {
           canView: true,
-          canJoin: ['OWNER', 'MODERATOR', 'MEMBER'].includes(leagueMembership.role),
-          canModerate: ['OWNER', 'MODERATOR'].includes(leagueMembership.role),
+          canJoin: true,
+          canModerate: leagueMembership.role === 'OWNER',
           canManage: leagueMembership.role === 'OWNER',
         }
       }
@@ -198,24 +172,6 @@ export async function getUserAuctionPermissions(
   }
 }
 
-export async function validateAuctionPasscode(auctionId: string, passcode: string): Promise<boolean> {
-  try {
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      select: { passcode: true, visibility: true }
-    })
-
-    if (!auction || auction.visibility !== 'PRIVATE') {
-      return false
-    }
-
-    return auction.passcode === passcode
-  } catch (error) {
-    console.error('Error validating passcode:', error)
-    return false
-  }
-}
-
 export async function joinAuction(
   userId: string,
   auctionId: string,
@@ -223,37 +179,36 @@ export async function joinAuction(
   teamId?: string
 ): Promise<boolean> {
   try {
-    // Check if user already has participation
-    const existingParticipation = await prisma.auctionParticipation.findFirst({
-      where: {
-        auctionId,
-        userId,
-      }
-    })
+    const supabase = await createClient()
+
+    const { data: existingParticipation } = await supabase
+      .from('auction_participations')
+      .select('id')
+      .eq('auction_id', auctionId)
+      .eq('user_id', userId)
+      .maybeSingle()
 
     if (existingParticipation) {
-      return true // Already joined
+      return true
     }
 
-    // Create participation
-    await prisma.auctionParticipation.create({
-      data: {
-        auctionId,
-        userId,
+    const { error } = await supabase
+      .from('auction_participations')
+      .insert({
+        auction_id: auctionId,
+        user_id: userId,
         role,
-        teamId,
-        joinedAt: new Date(),
-      }
-    })
+        team_id: teamId || null,
+      })
 
-    return true
+    return !error
   } catch (error) {
     console.error('Error joining auction:', error)
     return false
   }
 }
 
-// Captain-specific authentication functions
+// Captain-specific authentication
 
 export interface CaptainAuthResult {
   success: boolean
@@ -264,10 +219,6 @@ export interface CaptainAuthResult {
   statusCode?: number
 }
 
-/**
- * Verify that a user has team admin access to a specific team
- * Checks multiple sources: team captain, team members with admin roles, and auction participation
- */
 export async function verifyTeamAdminAccess(
   userId: string,
   userEmail: string,
@@ -275,82 +226,67 @@ export async function verifyTeamAdminAccess(
   auctionId: string
 ): Promise<CaptainAuthResult> {
   try {
-    // Get team with captain info, team members, and auction participation
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        captain: {
-          select: { id: true, name: true, email: true }
-        },
-        auction: {
-          select: { id: true, status: true }
-        },
-        members: {
-          where: {
-            role: { in: ['CAPTAIN', 'VICE_CAPTAIN'] } // Include captain and vice-captain roles
-          },
-          include: {
-            user: {
-              select: { id: true, name: true, email: true }
-            }
-          }
-        },
-        participations: {
-          where: {
-            userId: userId,
-            role: { in: ['OWNER', 'MODERATOR', 'CAPTAIN'] } // Admin roles in auction
-          }
-        }
-      }
-    })
+    const supabase = await createClient()
+
+    // Get team with captain and auction info
+    const { data: team } = await supabase
+      .from('teams')
+      .select(`
+        id, name, captain_id, auction_id,
+        captain:users!captain_id(id, name, email),
+        auction:auctions!auction_id(id, status)
+      `)
+      .eq('id', teamId)
+      .maybeSingle()
 
     if (!team) {
-      return {
-        success: false,
-        error: 'Team not found',
-        statusCode: 404
-      }
+      return { success: false, error: 'Team not found', statusCode: 404 }
     }
 
-    if (!team.auction || team.auction.id !== auctionId) {
-      return {
-        success: false,
-        error: 'Team does not belong to this auction',
-        statusCode: 400
-      }
+    const teamAuction = team.auction as unknown as { id: string; status: string } | null
+    const teamCaptain = team.captain as unknown as { id: string; name: string; email: string } | null
+
+    if (!teamAuction || teamAuction.id !== auctionId) {
+      return { success: false, error: 'Team does not belong to this auction', statusCode: 400 }
     }
 
     // Check if user is the assigned team captain
-    if (team.captain && team.captain.id === userId) {
-      return {
-        success: true
-      }
+    if (teamCaptain && teamCaptain.id === userId) {
+      return { success: true }
     }
 
-    // Check if user is a team member with admin role (CAPTAIN or VICE_CAPTAIN)
-    const adminMember = team.members.find(member => member.user.id === userId)
-    if (adminMember) {
-      return {
-        success: true
-      }
+    // Check if user is a team member with CAPTAIN role
+    const { data: captainMembers } = await supabase
+      .from('team_members')
+      .select('id, user_id, role, user:users!user_id(id, name, email)')
+      .eq('team_id', teamId)
+      .eq('role', 'CAPTAIN')
+
+    const captainMember = captainMembers?.find((m: any) => m.user_id === userId)
+    if (captainMember) {
+      return { success: true }
     }
 
     // Check if user has admin role in auction participation
-    if (team.participations.length > 0) {
-      return {
-        success: true
+    const { data: participations } = await supabase
+      .from('auction_participations')
+      .select('id, role')
+      .eq('team_id', teamId)
+      .eq('user_id', userId)
+      .in('role', ['OWNER', 'MODERATOR', 'CAPTAIN'])
+
+    if (participations && participations.length > 0) {
+      return { success: true }
+    }
+
+    const authorizedUsers: string[] = []
+    if (teamCaptain) {
+      authorizedUsers.push(`${teamCaptain.name} (${teamCaptain.email}) - Team Captain`)
+    }
+    captainMembers?.forEach((member: any) => {
+      if (member.user) {
+        authorizedUsers.push(`${member.user.name} (${member.user.email}) - Captain`)
       }
-    }
-
-    // Collect all authorized users for better error message
-    const authorizedUsers = []
-
-    if (team.captain) {
-      authorizedUsers.push(`${team.captain.name} (${team.captain.email}) - Team Captain`)
-    }
-
-    team.members.forEach(member => {
-      authorizedUsers.push(`${member.user.name} (${member.user.email}) - ${member.role.replace('_', ' ')}`)
     })
 
     return {
@@ -362,36 +298,12 @@ export async function verifyTeamAdminAccess(
     }
   } catch (error) {
     console.error('Team admin access verification failed:', error)
-    return {
-      success: false,
-      error: 'Internal server error during authorization',
-      statusCode: 500
-    }
+    return { success: false, error: 'Internal server error during authorization', statusCode: 500 }
   }
 }
 
-/**
- * Legacy function - kept for backward compatibility
- * @deprecated Use verifyTeamAdminAccess instead
- */
-export async function verifyCaptainAccess(
-  userId: string,
-  userEmail: string,
-  teamId: string,
-  auctionId: string
-): Promise<CaptainAuthResult> {
-  return verifyTeamAdminAccess(userId, userEmail, teamId, auctionId)
-}
-
-/**
- * Get authenticated user info from request headers (set by middleware)
- */
 export function getAuthenticatedUser(request: Request): { userId: string | null; userEmail: string | null } {
   const userId = request.headers.get('x-user-id')
   const userEmail = request.headers.get('x-user-email')
-
-  return {
-    userId,
-    userEmail
-  }
+  return { userId, userEmail }
 }

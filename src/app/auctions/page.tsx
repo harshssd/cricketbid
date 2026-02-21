@@ -68,7 +68,7 @@ export default function AuctionsPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card className="p-8 text-center">
-          <h2 className="text-xl font-semibold text-red-600 mb-2">Error Loading Auctions</h2>
+          <h2 className="text-xl font-semibold text-destructive mb-2">Error Loading Auctions</h2>
           <p className="text-muted-foreground mb-4">{error}</p>
           <Button onClick={refetch}>
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -119,7 +119,7 @@ export default function AuctionsPage() {
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="flex items-center justify-center text-green-600 text-2xl font-bold mb-1">
+            <div className="flex items-center justify-center text-success text-2xl font-bold mb-1">
               <Trophy className="h-5 w-5 mr-1" />
               {stats.completed}
             </div>
@@ -128,7 +128,7 @@ export default function AuctionsPage() {
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="flex items-center justify-center text-gray-600 text-2xl font-bold mb-1">
+            <div className="flex items-center justify-center text-muted-foreground text-2xl font-bold mb-1">
               <Archive className="h-5 w-5 mr-1" />
               {stats.draft}
             </div>
@@ -233,16 +233,16 @@ export default function AuctionsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {[...Array(8)].map((_, i) => (
             <Card key={i} className="animate-pulse">
-              <div className="h-32 bg-gray-200" />
+              <div className="h-32 bg-muted" />
               <div className="p-4 space-y-3">
-                <div className="h-4 bg-gray-200 rounded w-3/4" />
-                <div className="h-3 bg-gray-200 rounded w-1/2" />
+                <div className="h-4 bg-muted rounded w-3/4" />
+                <div className="h-3 bg-muted rounded w-1/2" />
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="h-8 bg-gray-200 rounded" />
-                  <div className="h-8 bg-gray-200 rounded" />
-                  <div className="h-8 bg-gray-200 rounded" />
+                  <div className="h-8 bg-muted rounded" />
+                  <div className="h-8 bg-muted rounded" />
+                  <div className="h-8 bg-muted rounded" />
                 </div>
-                <div className="h-10 bg-gray-200 rounded" />
+                <div className="h-10 bg-muted rounded" />
               </div>
             </Card>
           ))}

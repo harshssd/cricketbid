@@ -14,9 +14,7 @@ import {
   Calendar,
   Plus,
   Search,
-  Filter,
   Crown,
-  Shield,
   ArrowLeft,
   ExternalLink,
   Star
@@ -29,12 +27,10 @@ interface LeagueSummary {
   id: string
   name: string
   description?: string
-  code: string
   type: LeagueType
   status: LeagueStatus
   primaryColor: string
   visibility: Visibility
-  season?: string
   memberCount: number
   auctionCount: number
   userRole: OrganizationRole
@@ -43,22 +39,20 @@ interface LeagueSummary {
   lastActivity?: Date
 }
 
-const LEAGUE_TYPE_COLORS = {
-  TOURNAMENT: 'bg-yellow-100 text-yellow-800',
-  SEASONAL: 'bg-blue-100 text-blue-800',
-  CHAMPIONSHIP: 'bg-purple-100 text-purple-800'
+const LEAGUE_TYPE_COLORS: Record<LeagueType, string> = {
+  TOURNAMENT: 'bg-warning/10 text-warning',
+  LEAGUE: 'bg-info/10 text-info-foreground',
 }
 
-const LEAGUE_STATUS_COLORS = {
-  PLANNED: 'bg-orange-100 text-orange-800',
-  ONGOING: 'bg-green-100 text-green-800',
-  COMPLETED: 'bg-gray-100 text-gray-800'
+const LEAGUE_STATUS_COLORS: Record<LeagueStatus, string> = {
+  PLANNED: 'bg-warning/10 text-warning',
+  ONGOING: 'bg-success/10 text-success',
+  COMPLETED: 'bg-muted text-muted-foreground',
 }
 
-const VISIBILITY_COLORS = {
-  PUBLIC: 'bg-green-100 text-green-800',
-  PRIVATE: 'bg-red-100 text-red-800',
-  INVITE_ONLY: 'bg-orange-100 text-orange-800'
+const VISIBILITY_COLORS: Record<Visibility, string> = {
+  PUBLIC: 'bg-success/10 text-success',
+  PRIVATE: 'bg-destructive/10 text-destructive',
 }
 
 export default function LeaguesPage() {
@@ -116,12 +110,10 @@ export default function LeaguesPage() {
           id: league.id,
           name: league.name,
           description: league.description,
-          code: league.code,
           type: league.type,
           status: league.status || 'PLANNED',
           primaryColor: league.primary_color,
           visibility: league.visibility,
-          season: league.season,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
           userRole: 'OWNER',
@@ -140,12 +132,10 @@ export default function LeaguesPage() {
           id: league.id,
           name: league.name,
           description: league.description,
-          code: league.code,
           type: league.type,
           status: league.status || 'PLANNED',
           primaryColor: league.primary_color,
           visibility: league.visibility,
-          season: league.season,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
           userRole: membership.role,
@@ -172,7 +162,6 @@ export default function LeaguesPage() {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(league =>
         league.name.toLowerCase().includes(query) ||
-        league.code.toLowerCase().includes(query) ||
         league.description?.toLowerCase().includes(query)
       )
     }
@@ -190,41 +179,33 @@ export default function LeaguesPage() {
   const getRoleIcon = (role: OrganizationRole) => {
     switch (role) {
       case 'OWNER':
-        return <Crown className="h-4 w-4 text-yellow-600" />
-      case 'ADMIN':
-        return <Shield className="h-4 w-4 text-blue-600" />
-      case 'MODERATOR':
-        return <Shield className="h-4 w-4 text-green-600" />
-      default:
-        return <Users className="h-4 w-4 text-gray-600" />
+        return <Crown className="h-4 w-4 text-warning" />
+      case 'MEMBER':
+        return <Users className="h-4 w-4 text-muted-foreground" />
     }
   }
 
   const getRoleBadgeColor = (role: OrganizationRole) => {
     switch (role) {
       case 'OWNER':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'ADMIN':
-        return 'bg-blue-100 text-blue-800'
-      case 'MODERATOR':
-        return 'bg-green-100 text-green-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-warning/10 text-warning'
+      case 'MEMBER':
+        return 'bg-muted text-muted-foreground'
     }
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-card shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
@@ -234,7 +215,7 @@ export default function LeaguesPage() {
                   Dashboard
                 </Button>
               </Link>
-              <h1 className="text-2xl font-bold text-gray-900">My Leagues</h1>
+              <h1 className="text-2xl font-bold text-foreground">My Leagues</h1>
             </div>
             <Button asChild>
               <Link href="/leagues/create">
@@ -252,12 +233,12 @@ export default function LeaguesPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Trophy className="h-6 w-6 text-blue-600" />
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Trophy className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total Leagues</p>
-                  <p className="text-2xl font-bold text-gray-900">{leagues.length}</p>
+                  <p className="text-sm text-muted-foreground">Total Leagues</p>
+                  <p className="text-2xl font-bold text-foreground">{leagues.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -266,12 +247,12 @@ export default function LeaguesPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-yellow-100 rounded-lg">
-                  <Crown className="h-6 w-6 text-yellow-600" />
+                <div className="p-2 bg-warning/10 rounded-lg">
+                  <Crown className="h-6 w-6 text-warning" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Owned</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Owned</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {leagues.filter(l => l.isOwner).length}
                   </p>
                 </div>
@@ -282,12 +263,12 @@ export default function LeaguesPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Users className="h-6 w-6 text-green-600" />
+                <div className="p-2 bg-success/10 rounded-lg">
+                  <Users className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Member</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Member</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {leagues.filter(l => !l.isOwner).length}
                   </p>
                 </div>
@@ -298,12 +279,12 @@ export default function LeaguesPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Calendar className="h-6 w-6 text-purple-600" />
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Calendar className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total Auctions</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Total Auctions</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {leagues.reduce((sum, l) => sum + l.auctionCount, 0)}
                   </p>
                 </div>
@@ -315,7 +296,7 @@ export default function LeaguesPage() {
         {/* Filters */}
         <div className="mb-6 flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search leagues..."
               value={searchQuery}
@@ -364,7 +345,7 @@ export default function LeaguesPage() {
                       </div>
                       <div>
                         <CardTitle className="text-lg">{league.name}</CardTitle>
-                        <p className="text-sm text-gray-500">{league.code}</p>
+                        <p className="text-sm text-muted-foreground">{league.type}</p>
                       </div>
                     </div>
                     {league.isOwner && (
@@ -374,7 +355,7 @@ export default function LeaguesPage() {
                 </CardHeader>
                 <CardContent>
                   {league.description && (
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
                       {league.description}
                     </p>
                   )}
@@ -395,7 +376,7 @@ export default function LeaguesPage() {
                     </Badge>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+                  <div className="flex items-center text-sm text-muted-foreground mb-4">
                     <div className="flex items-center space-x-4">
                       <div className="flex items-center space-x-1">
                         <Users className="h-4 w-4" />
@@ -406,14 +387,11 @@ export default function LeaguesPage() {
                         <span>{league.auctionCount}</span>
                       </div>
                     </div>
-                    {league.season && (
-                      <span className="text-xs">{league.season}</span>
-                    )}
                   </div>
 
                   <div className="flex space-x-2">
                     <Button asChild className="flex-1" size="sm">
-                      <Link href={`/leagues/${league.code}/dashboard`}>
+                      <Link href={`/leagues/${league.id}/dashboard`}>
                         Dashboard
                       </Link>
                     </Button>
@@ -422,7 +400,7 @@ export default function LeaguesPage() {
                     </Button>
                   </div>
 
-                  <div className="text-xs text-gray-400 mt-3 pt-3 border-t">
+                  <div className="text-xs text-muted-foreground mt-3 pt-3 border-t">
                     {league.lastActivity ? (
                       <>Last active: {league.lastActivity.toLocaleDateString()}</>
                     ) : (
@@ -435,11 +413,11 @@ export default function LeaguesPage() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <Trophy className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            <Trophy className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-foreground mb-2">
               {searchQuery.trim() ? 'No leagues found' : 'No leagues yet'}
             </h3>
-            <p className="text-gray-500 mb-6">
+            <p className="text-muted-foreground mb-6">
               {searchQuery.trim()
                 ? 'Try adjusting your search or filters'
                 : 'Create your first league to get started with organizing cricket auctions'

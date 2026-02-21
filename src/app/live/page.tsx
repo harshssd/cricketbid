@@ -106,12 +106,12 @@ export default function LivePage() {
 
   if (!auction) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8">
           <CardContent className="text-center">
-            <RefreshCw className="h-12 w-12 mx-auto mb-4 text-gray-400 animate-spin" />
+            <RefreshCw className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
             <h1 className="text-xl font-bold mb-2">Connecting to Live Auction...</h1>
-            <p className="text-gray-600">Please wait while we connect</p>
+            <p className="text-muted-foreground">Please wait while we connect</p>
           </CardContent>
         </Card>
       </div>
@@ -120,12 +120,12 @@ export default function LivePage() {
 
   if (!auction.auctionStarted) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8">
           <CardContent className="text-center">
             <Clock className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
             <h1 className="text-xl font-bold mb-2">Auction Starting Soon</h1>
-            <p className="text-gray-600">The auction will begin shortly</p>
+            <p className="text-muted-foreground">The auction will begin shortly</p>
           </CardContent>
         </Card>
       </div>
@@ -138,12 +138,12 @@ export default function LivePage() {
 
   if (!currentPlayer) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         {/* Header */}
-        <div className="bg-white shadow-sm border-b">
+        <div className="bg-card shadow-sm border-b">
           <div className="max-w-6xl mx-auto px-4 py-6">
             <div className="text-center">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{auction.name}</h1>
+              <h1 className="text-3xl font-bold text-foreground mb-2">{auction.name}</h1>
               <Badge className="bg-green-500 text-white text-lg px-4 py-2">
                 <Trophy className="h-4 w-4 mr-2" />
                 AUCTION COMPLETE
@@ -167,19 +167,19 @@ export default function LivePage() {
                         <span>{team.name}</span>
                         <div className="text-right">
                           <div className="text-lg font-bold">{team.originalCoins - team.coins} spent</div>
-                          <div className="text-sm text-gray-500">{team.coins} remaining</div>
+                          <div className="text-sm text-muted-foreground">{team.coins} remaining</div>
                         </div>
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
                         {team.players.map((player, i) => (
-                          <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                          <div key={i} className="flex justify-between items-center p-2 bg-muted rounded">
                             <div>
                               <span className="font-medium">{player.name}</span>
                               <Badge className="ml-2 text-xs">T{player.tier}</Badge>
                             </div>
-                            <span className="font-bold text-green-600">{player.price}</span>
+                            <span className="font-bold text-success">{player.price}</span>
                           </div>
                         ))}
                       </div>
@@ -195,12 +195,12 @@ export default function LivePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-card shadow-sm border-b">
         <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{auction.name}</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-2">{auction.name}</h1>
             {viewConfig.showLiveStatus && (
               <Badge className="bg-red-500 text-white text-lg px-4 py-2 animate-pulse">
                 <Zap className="h-4 w-4 mr-2" />
@@ -208,7 +208,7 @@ export default function LivePage() {
               </Badge>
             )}
             {viewConfig.showLastUpdated && (
-              <div className="text-sm text-gray-600 mt-2">
+              <div className="text-sm text-muted-foreground mt-2">
                 Last updated: {lastUpdate.toLocaleTimeString()}
               </div>
             )}
@@ -252,28 +252,28 @@ export default function LivePage() {
         <div className="grid grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{progress.sold}</div>
-              <div className="text-sm text-gray-600">Sold</div>
+              <div className="text-2xl font-bold text-success">{progress.sold}</div>
+              <div className="text-sm text-muted-foreground">Sold</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{progress.remaining}</div>
-              <div className="text-sm text-gray-600">Remaining</div>
+              <div className="text-2xl font-bold text-primary">{progress.remaining}</div>
+              <div className="text-sm text-muted-foreground">Remaining</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-yellow-600">{progress.deferred}</div>
-              <div className="text-sm text-gray-600">Deferred</div>
+              <div className="text-2xl font-bold text-warning">{progress.deferred}</div>
+              <div className="text-sm text-muted-foreground">Deferred</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-purple-600">
+              <div className="text-2xl font-bold text-primary">
                 {auction.teams.reduce((sum, team) => sum + (team.originalCoins - team.coins), 0)}
               </div>
-              <div className="text-sm text-gray-600">Total Spent</div>
+              <div className="text-sm text-muted-foreground">Total Spent</div>
             </CardContent>
           </Card>
         </div>
@@ -283,11 +283,11 @@ export default function LivePage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">Auction Progress</span>
-              <span className="text-sm text-gray-600">{Math.round(progress.progress)}%</span>
+              <span className="text-sm text-muted-foreground">{Math.round(progress.progress)}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
+            <div className="w-full bg-muted rounded-full h-3">
               <div
-                className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                className="bg-primary h-3 rounded-full transition-all duration-300"
                 style={{ width: `${progress.progress}%` }}
               />
             </div>
@@ -314,21 +314,21 @@ export default function LivePage() {
                         </Avatar>
                         <div>
                           <div className="font-medium">{team.name}</div>
-                          <div className="text-sm text-gray-600">
+                          <div className="text-sm text-muted-foreground">
                             {team.players.length} players • {team.coins} coins left
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-green-600">
+                        <div className="font-bold text-success">
                           {team.originalCoins - team.coins}
                         </div>
-                        <div className="text-xs text-gray-500">spent</div>
+                        <div className="text-xs text-muted-foreground">spent</div>
                       </div>
                     </div>
 
                     {team.players.length > 0 && (
-                      <div className="text-xs text-gray-600">
+                      <div className="text-xs text-muted-foreground">
                         Latest: {team.players[team.players.length - 1]?.name} ({team.players[team.players.length - 1]?.price})
                       </div>
                     )}
@@ -350,20 +350,20 @@ export default function LivePage() {
               {auction.auctionHistory.length > 0 ? (
                 <div className="space-y-3">
                   {auction.auctionHistory.slice(-10).reverse().map((sale, i) => (
-                    <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                    <div key={i} className="flex justify-between items-center p-3 bg-muted rounded-lg">
                       <div>
                         <div className="font-medium">{sale.player}</div>
-                        <div className="text-sm text-gray-600">to {sale.team}</div>
+                        <div className="text-sm text-muted-foreground">to {sale.team}</div>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-green-600">{sale.price}</div>
-                        <div className="text-xs text-gray-500">coins</div>
+                        <div className="font-bold text-success">{sale.price}</div>
+                        <div className="text-xs text-muted-foreground">coins</div>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted-foreground">
                   <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No sales yet</p>
                 </div>

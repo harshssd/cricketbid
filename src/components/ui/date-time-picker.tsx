@@ -97,7 +97,7 @@ export function DateTimePicker({
       <div className="grid grid-cols-2 gap-3">
         {/* Date Input */}
         <div className="space-y-1">
-          <Label className="text-xs font-medium text-gray-600">Date</Label>
+          <Label className="text-xs font-medium text-muted-foreground">Date</Label>
           <div className="relative">
             <Input
               type="date"
@@ -107,13 +107,13 @@ export function DateTimePicker({
               disabled={disabled}
               className="pr-8"
             />
-            <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           </div>
         </div>
 
         {/* Time Input */}
         <div className="space-y-1">
-          <Label className="text-xs font-medium text-gray-600">Time</Label>
+          <Label className="text-xs font-medium text-muted-foreground">Time</Label>
           <div className="relative">
             <Input
               type="time"
@@ -122,14 +122,14 @@ export function DateTimePicker({
               disabled={disabled}
               className="pr-8"
             />
-            <Clock className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <Clock className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           </div>
         </div>
       </div>
 
       {/* Selected DateTime Display */}
       {selectedDate && (
-        <div className="text-sm text-gray-600 bg-gray-50 dark:bg-gray-800 rounded-md p-2">
+        <div className="text-sm text-muted-foreground bg-muted rounded-md p-2">
           <span className="font-medium">Selected:</span> {format(selectedDate, 'EEEE, MMMM do, yyyy \'at\' h:mm a')}
         </div>
       )}
@@ -168,7 +168,7 @@ export function TimePresets({ onTimeSelect, className }: TimePresetsProps) {
 
   return (
     <div className={cn('space-y-2', className)}>
-      <Label className="text-xs font-medium text-gray-600">Quick Select</Label>
+      <Label className="text-xs font-medium text-muted-foreground">Quick Select</Label>
       <div className="grid grid-cols-3 gap-2">
         {presets.map((preset) => (
           <Button

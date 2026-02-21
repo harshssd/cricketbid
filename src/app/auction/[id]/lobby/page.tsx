@@ -147,16 +147,16 @@ export default function AuctionLobbyPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div className="h-8 bg-muted rounded w-1/3" />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-48 bg-gray-200 rounded" />
+                <div key={i} className="h-48 bg-muted rounded" />
               ))}
             </div>
             <div className="space-y-4">
-              <div className="h-32 bg-gray-200 rounded" />
-              <div className="h-48 bg-gray-200 rounded" />
+              <div className="h-32 bg-muted rounded" />
+              <div className="h-48 bg-muted rounded" />
             </div>
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function AuctionLobbyPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card className="p-8 text-center">
-          <h2 className="text-xl font-semibold text-red-600 mb-2">Error</h2>
+          <h2 className="text-xl font-semibold text-destructive mb-2">Error</h2>
           <p className="text-muted-foreground mb-4">{auctionError || error}</p>
           <Button onClick={refetch}>
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -183,7 +183,7 @@ export default function AuctionLobbyPage() {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card className="p-8 text-center">
-          <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+          <AlertCircle className="h-12 w-12 text-warning mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Auction Not in Lobby</h2>
           <p className="text-muted-foreground mb-4">
             This auction is not currently in lobby status.
@@ -207,8 +207,8 @@ export default function AuctionLobbyPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Users className="h-6 w-6 text-yellow-600" />
+            <div className="p-2 bg-warning/10 rounded-lg">
+              <Users className="h-6 w-6 text-warning" />
             </div>
             {auction.name} - Lobby
           </h1>
@@ -218,7 +218,7 @@ export default function AuctionLobbyPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Badge variant="outline" className="bg-yellow-50">
+          <Badge variant="outline" className="bg-warning/10">
             <Clock className="h-4 w-4 mr-1" />
             Lobby
           </Badge>
@@ -463,7 +463,7 @@ export default function AuctionLobbyPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         {participant.role === 'OWNER' && <Crown className="h-3 w-3 text-yellow-600" />}
-                        {participant.role === 'MODERATOR' && <Shield className="h-3 w-3 text-blue-600" />}
+                        {participant.role === 'MODERATOR' && <Shield className="h-3 w-3 text-primary" />}
                         <Badge variant="outline" className="text-xs">
                           {participant.role}
                         </Badge>

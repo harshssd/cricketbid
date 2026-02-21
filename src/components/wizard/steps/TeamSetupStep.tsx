@@ -127,9 +127,9 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
       >
         <Card>
           <CardContent className="p-8 text-center">
-            <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Initializing Teams...</h3>
-            <p className="text-gray-600">
+            <p className="text-muted-foreground">
               Setting up {teamCount} teams with default configurations.
             </p>
           </CardContent>
@@ -147,7 +147,7 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
       <div className="space-y-6">
         {/* Action Bar */}
         <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-2 text-sm text-gray-600">
+          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <Trophy className="h-4 w-4" />
             <span>{teams.length} teams configured</span>
           </div>
@@ -188,10 +188,10 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                       maxLength={50}
                       value={team.name || ''}
                       onChange={(e) => handleTeamChange(index, 'name', e.target.value)}
-                      className={getFieldError(index, 'name') ? 'border-red-500' : ''}
+                      className={getFieldError(index, 'name') ? 'border-destructive' : ''}
                     />
                     {getFieldError(index, 'name') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'name')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'name')}</p>
                     )}
                   </div>
 
@@ -209,10 +209,10 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                       placeholder="captain@example.com"
                       value={team.captainEmail || ''}
                       onChange={(e) => handleTeamChange(index, 'captainEmail', e.target.value)}
-                      className={getFieldError(index, 'captainEmail') ? 'border-red-500' : ''}
+                      className={getFieldError(index, 'captainEmail') ? 'border-destructive' : ''}
                     />
                     {getFieldError(index, 'captainEmail') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'captainEmail')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'captainEmail')}</p>
                     )}
                   </div>
                 </div>
@@ -220,7 +220,7 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                 {/* Color Configuration */}
                 <div className="space-y-3">
                   <div className="flex items-center space-x-2">
-                    <Palette className="h-4 w-4 text-gray-500" />
+                    <Palette className="h-4 w-4 text-muted-foreground" />
                     <Label>Team Colors</Label>
                   </div>
 
@@ -242,7 +242,7 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                         />
                       </div>
                       {getFieldError(index, 'primaryColor') && (
-                        <p className="text-sm text-red-600">{getFieldError(index, 'primaryColor')}</p>
+                        <p className="text-sm text-destructive">{getFieldError(index, 'primaryColor')}</p>
                       )}
                     </div>
 
@@ -263,20 +263,20 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                         />
                       </div>
                       {getFieldError(index, 'secondaryColor') && (
-                        <p className="text-sm text-red-600">{getFieldError(index, 'secondaryColor')}</p>
+                        <p className="text-sm text-destructive">{getFieldError(index, 'secondaryColor')}</p>
                       )}
                     </div>
                   </div>
 
                   {/* Color Preview */}
-                  <div className="flex items-center space-x-2 p-2 rounded border bg-gray-50">
+                  <div className="flex items-center space-x-2 p-2 rounded border bg-muted">
                     <div
                       className="w-8 h-8 rounded border shadow-sm"
                       style={{
                         background: `linear-gradient(135deg, ${team.primaryColor} 0%, ${team.secondaryColor} 100%)`
                       }}
                     />
-                    <span className="text-sm text-gray-600">Color preview</span>
+                    <span className="text-sm text-muted-foreground">Color preview</span>
                   </div>
                 </div>
               </CardContent>
@@ -285,14 +285,14 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
         </div>
 
         {/* Team Setup Tips */}
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-info/30 bg-info/10">
           <CardHeader>
-            <CardTitle className="text-blue-800 flex items-center space-x-2">
+            <CardTitle className="text-info-foreground flex items-center space-x-2">
               <Users className="h-5 w-5" />
               <span>Team Setup Tips</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-blue-700 space-y-2">
+          <CardContent className="text-sm text-info-foreground space-y-2">
             <ul className="list-disc list-inside space-y-1">
               <li>
                 <strong>Team Names:</strong> Choose memorable names that reflect your league's personality

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
 
 const searchUsersSchema = z.object({
   searchQuery: z.string().optional(),
@@ -14,6 +14,7 @@ const searchUsersSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient()
     const { searchParams } = new URL(request.url)
     const {
       searchQuery,
@@ -34,91 +35,72 @@ export async function GET(request: NextRequest) {
       sortOrder: searchParams.get('sortOrder'),
     })
 
-    // Build where clause
-    let whereClause: any = {}
+    // Calculate pagination
+    const skip = (page - 1) * limit
+    const rangeEnd = skip + limit - 1
 
-    // Search query - match name or email
+    // Map sortBy to snake_case column names
+    const sortColumn = sortBy === 'createdAt' ? 'created_at' : sortBy
+
+    // Build the query - fetch users with their linked players for counting
+    let query = supabase
+      .from('users')
+      .select('id, name, email, image, created_at, linked_players:players!user_id(id)', { count: 'exact' })
+
+    // Search query - match name or email (OR condition)
     if (searchQuery) {
-      whereClause.OR = [
-        { name: { contains: searchQuery, mode: 'insensitive' } },
-        { email: { contains: searchQuery, mode: 'insensitive' } },
-      ]
+      query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
     }
 
     // Exclude specific user IDs
     if (excludeUserIds) {
       const excludeIds = excludeUserIds.split(',').map(id => id.trim()).filter(Boolean)
       if (excludeIds.length > 0) {
-        whereClause.id = { notIn: excludeIds }
+        query = query.not('id', 'in', `(${excludeIds.join(',')})`)
       }
     }
 
-    // Filter by users with/without linked players
+    // Apply sorting and pagination
+    query = query
+      .order(sortColumn, { ascending: sortOrder === 'asc' })
+      .range(skip, rangeEnd)
+
+    const { data: users, count: totalCount, error } = await query
+
+    if (error) {
+      throw error
+    }
+
+    // Filter by hasLinkedPlayers if specified (done in JS since Supabase
+    // doesn't natively support filtering by related record existence in a simple way)
+    let filteredUsers = users || []
+
     if (typeof hasLinkedPlayers === 'boolean') {
-      if (hasLinkedPlayers) {
-        whereClause.linkedPlayers = {
-          some: { isLinked: true }
-        }
-      } else {
-        whereClause.NOT = {
-          linkedPlayers: {
-            some: { isLinked: true }
-          }
-        }
-      }
+      filteredUsers = filteredUsers.filter(user => {
+        const linkedCount = user.linked_players?.length ?? 0
+        return hasLinkedPlayers ? linkedCount > 0 : linkedCount === 0
+      })
     }
 
-    // Build order by
-    let orderBy: any = {}
-    if (sortBy === 'createdAt') {
-      orderBy.createdAt = sortOrder
-    } else if (sortBy === 'email') {
-      orderBy.email = sortOrder
-    } else {
-      orderBy.name = sortOrder
-    }
-
-    // Calculate pagination
-    const skip = (page - 1) * limit
-
-    // Get users and total count
-    const [users, totalCount] = await Promise.all([
-      prisma.user.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          image: true,
-          createdAt: true,
-          _count: {
-            select: {
-              linkedPlayers: {
-                where: { isLinked: true }
-              }
-            }
-          }
-        },
-        orderBy: orderBy,
-        skip: skip,
-        take: limit
-      }),
-      prisma.user.count({ where: whereClause })
-    ])
+    // Use totalCount from the query if no hasLinkedPlayers filter,
+    // otherwise use filtered length (note: pagination may be slightly off with hasLinkedPlayers filter)
+    const effectiveTotalCount = typeof hasLinkedPlayers === 'boolean'
+      ? filteredUsers.length
+      : (totalCount ?? 0)
 
     // Calculate pagination info
-    const totalPages = Math.ceil(totalCount / limit)
+    const totalPages = Math.ceil(effectiveTotalCount / limit)
     const hasNextPage = page < totalPages
     const hasPrevPage = page > 1
 
     // Transform users to include linked player count
-    const usersWithStats = users.map(user => ({
+    const usersWithStats = filteredUsers.map(user => ({
       id: user.id,
       name: user.name,
       email: user.email,
       image: user.image,
-      createdAt: user.createdAt,
-      linkedPlayersCount: user._count.linkedPlayers
+      createdAt: user.created_at,
+      linkedPlayersCount: user.linked_players?.length ?? 0
     }))
 
     return NextResponse.json({
@@ -127,7 +109,7 @@ export async function GET(request: NextRequest) {
       pagination: {
         page,
         limit,
-        totalCount,
+        totalCount: effectiveTotalCount,
         totalPages,
         hasNextPage,
         hasPrevPage

@@ -1,13 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { format } from 'date-fns'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
-  Trophy, Users, Clock, Eye, Coins, Calendar,
+  Trophy, Users, Clock, Eye, Coins,
   Globe, Lock, Zap, Play, UserCheck
 } from 'lucide-react'
 import { AuctionListItem } from '@/hooks/useAuctions'
@@ -78,15 +77,9 @@ export function AuctionCard({ auction }: AuctionCardProps) {
     }
   }
 
-  const cardStyle = auction.banner
-    ? {
-        backgroundImage: `linear-gradient(135deg, ${auction.primaryColor}ee, ${auction.secondaryColor}ee), url(${auction.banner})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }
-    : {
-        background: `linear-gradient(135deg, ${auction.primaryColor}, ${auction.secondaryColor})`
-      }
+  const cardStyle = {
+    background: `linear-gradient(135deg, ${auction.primaryColor}, ${auction.secondaryColor})`
+  }
 
   return (
     <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden">
@@ -123,8 +116,8 @@ export function AuctionCard({ auction }: AuctionCardProps) {
           <h3 className="font-bold text-lg leading-tight mb-1">
             {auction.name}
           </h3>
-          {auction.tagline && (
-            <p className="text-white/90 text-sm">{auction.tagline}</p>
+          {auction.description && (
+            <p className="text-white/90 text-sm line-clamp-1">{auction.description}</p>
           )}
         </div>
       </div>
@@ -138,12 +131,6 @@ export function AuctionCard({ auction }: AuctionCardProps) {
               {auction.league.name}
             </div>
           )}
-
-          {/* Schedule */}
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Calendar className="h-3 w-3 mr-1" />
-            {format(auction.scheduledAt, 'MMM d, yyyy • h:mm a')} ({auction.timezone})
-          </div>
 
           {/* Owner */}
           <div className="text-xs text-muted-foreground">
@@ -185,7 +172,7 @@ export function AuctionCard({ auction }: AuctionCardProps) {
               <span>Players Sold</span>
               <span>{auction.playersSold}/{auction.playerCount}</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
+            <div className="w-full bg-muted rounded-full h-2">
               <div
                 className="bg-green-500 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${(auction.playersSold / auction.playerCount) * 100}%` }}

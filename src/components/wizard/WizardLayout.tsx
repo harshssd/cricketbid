@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { ChevronLeft, ChevronRight, Save, Sparkles } from 'lucide-react'
-import { AutoSaveIndicator } from '@/components/wizard/AutoSaveIndicator'
 import { cn } from '@/lib/utils'
 
 interface WizardStep {
@@ -52,20 +51,20 @@ export function WizardLayout({
   const currentStepData = steps[currentStep]
 
   return (
-    <div className={cn("min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800", className)}>
+    <div className={cn("min-h-screen bg-gradient-to-br from-background to-muted", className)}>
       {/* Header */}
-      <div className="border-b bg-white/80 backdrop-blur-sm dark:bg-slate-900/80 sticky top-0 z-10">
+      <div className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <Sparkles className="h-6 w-6 text-blue-600" />
-                <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+                <Sparkles className="h-6 w-6 text-primary" />
+                <h1 className="text-xl font-semibold text-foreground">
                   Create Auction
                 </h1>
               </div>
               <Separator orientation="vertical" className="h-6" />
-              <div className="text-sm text-gray-600 dark:text-gray-400">
+              <div className="text-sm text-muted-foreground">
                 Step {currentStep + 1} of {steps.length}
               </div>
             </div>
@@ -105,11 +104,11 @@ export function WizardLayout({
                       disabled={step.isDisabled || isLoading}
                       className={cn(
                         "w-full text-left p-3 rounded-lg transition-all duration-200 group",
-                        "hover:bg-gray-50 dark:hover:bg-slate-800",
+                        "hover:bg-muted",
                         {
-                          "bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500": step.isActive,
+                          "bg-info/10 border-l-4 border-primary": step.isActive,
                           "opacity-50 cursor-not-allowed": step.isDisabled,
-                          "hover:bg-gray-100 dark:hover:bg-slate-700": !step.isActive && !step.isDisabled
+                          "hover:bg-accent": !step.isActive && !step.isDisabled
                         }
                       )}
                     >
@@ -117,9 +116,9 @@ export function WizardLayout({
                         <div className={cn(
                           "w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium transition-colors",
                           {
-                            "bg-green-500 border-green-500 text-white": step.isCompleted,
-                            "bg-blue-500 border-blue-500 text-white": step.isActive,
-                            "border-gray-300 text-gray-500 dark:border-gray-600 dark:text-gray-400": !step.isActive && !step.isCompleted,
+                            "bg-success border-success text-white": step.isCompleted,
+                            "bg-primary border-primary text-primary-foreground": step.isActive,
+                            "border-border text-muted-foreground": !step.isActive && !step.isCompleted,
                           }
                         )}>
                           {step.isCompleted ? '✓' : index + 1}
@@ -128,15 +127,15 @@ export function WizardLayout({
                           <p className={cn(
                             "text-sm font-medium truncate",
                             {
-                              "text-blue-700 dark:text-blue-300": step.isActive,
-                              "text-green-700 dark:text-green-300": step.isCompleted && !step.isActive,
-                              "text-gray-700 dark:text-gray-300": !step.isActive && !step.isCompleted,
+                              "text-info-foreground": step.isActive,
+                              "text-success-foreground": step.isCompleted && !step.isActive,
+                              "text-foreground": !step.isActive && !step.isCompleted,
                             }
                           )}>
                             {step.title}
                           </p>
                           {step.subtitle && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                               {step.subtitle}
                             </p>
                           )}
@@ -155,11 +154,11 @@ export function WizardLayout({
               <CardContent className="p-8">
                 {/* Step Header */}
                 <div className="mb-8">
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  <h2 className="text-2xl font-bold text-foreground mb-2">
                     {currentStepData?.title}
                   </h2>
                   {currentStepData?.subtitle && (
-                    <p className="text-gray-600 dark:text-gray-400">
+                    <p className="text-muted-foreground">
                       {currentStepData.subtitle}
                     </p>
                   )}
@@ -184,7 +183,9 @@ export function WizardLayout({
                         <span>Previous</span>
                       </Button>
                     )}
-                    <AutoSaveIndicator lastSaved={lastModified} />
+                    {lastModified && (
+                      <span className="text-xs text-muted-foreground">Last saved: {new Date(lastModified).toLocaleTimeString()}</span>
+                    )}
                   </div>
 
                   <div className="flex items-center space-x-3">
@@ -194,7 +195,7 @@ export function WizardLayout({
                         variant="ghost"
                         onClick={onNext}
                         disabled={isLoading}
-                        className="flex items-center space-x-2 text-gray-600 hover:text-gray-800"
+                        className="flex items-center space-x-2 text-muted-foreground hover:text-foreground"
                       >
                         <span>Skip This Step</span>
                         <ChevronRight className="h-4 w-4" />
@@ -227,7 +228,7 @@ export function WizardLayout({
                       <Button
                         onClick={onNext}
                         disabled={!canProceed || isLoading}
-                        className="flex items-center space-x-2 bg-green-600 hover:bg-green-700"
+                        className="flex items-center space-x-2 bg-success hover:bg-success/90"
                       >
                         <Sparkles className="h-4 w-4" />
                         <span>Create Auction</span>

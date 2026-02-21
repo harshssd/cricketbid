@@ -18,13 +18,12 @@ import {
   Activity,
   Crown,
   Shield,
-  MoreHorizontal,
-  Edit,
-  Trash2,
   ExternalLink
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
+import { PageTransition } from '@/components/PageTransition'
 
 interface DashboardData {
   user: {
@@ -52,7 +51,6 @@ interface DashboardData {
 interface ClubSummary {
   id: string
   name: string
-  slug: string
   primaryColor: string
   memberCount: number
   leagueCount: number
@@ -62,7 +60,6 @@ interface ClubSummary {
 interface LeagueSummary {
   id: string
   name: string
-  code: string
   type: string
   status: string
   primaryColor: string
@@ -78,7 +75,6 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [hasConnectionIssue, setHasConnectionIssue] = useState(false)
   const router = useRouter()
-  // Create supabase client only if environment variables are configured
   const supabase = typeof window !== 'undefined' &&
                    process.env.NEXT_PUBLIC_SUPABASE_URL &&
                    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
@@ -105,64 +101,45 @@ export default function DashboardPage() {
         return
       }
 
-      // Fetch real dashboard data from database
-
-      // Fetch owned clubs with details
       const { data: ownedClubsData } = await supabase
         .from('clubs')
         .select('*, club_memberships(count), leagues!leagues_club_id_fkey(count)')
         .eq('owner_id', user.id)
 
-      // Fetch owned leagues with details
       const { data: ownedLeaguesData } = await supabase
         .from('leagues')
         .select('*, league_memberships(count), auctions(count)')
         .eq('owner_id', user.id)
 
-      // Fetch owned auctions from our API
       let ownedAuctions: any[] = []
       try {
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s for cold start compile
-
-        const auctionResponse = await fetch('/api/auctions', {
-          signal: controller.signal
-        })
-
+        const timeoutId = setTimeout(() => controller.abort(), 15000)
+        const auctionResponse = await fetch('/api/auctions', { signal: controller.signal })
         clearTimeout(timeoutId)
-
         if (auctionResponse.ok) {
           const auctionData = await auctionResponse.json()
           ownedAuctions = auctionData.auctions || []
           setHasConnectionIssue(false)
         } else {
-          console.error('Auctions API returned error:', auctionResponse.status)
           ownedAuctions = []
           setHasConnectionIssue(true)
         }
       } catch (error: any) {
-        if (error.name === 'AbortError') {
-          console.error('Auctions API request timed out')
-        } else {
-          console.error('Failed to fetch auctions from API:', error)
-        }
         ownedAuctions = []
         setHasConnectionIssue(true)
       }
 
-      // Fetch club memberships
       const { data: clubMemberships } = await supabase
         .from('club_memberships')
         .select('id')
         .eq('user_id', user.id)
 
-      // Fetch league memberships
       const { data: leagueMemberships } = await supabase
         .from('league_memberships')
         .select('id')
         .eq('user_id', user.id)
 
-      // Fetch auction participations
       const { data: auctionParticipations } = await supabase
         .from('auction_participations')
         .select('id')
@@ -181,27 +158,23 @@ export default function DashboardPage() {
           ownedLeagues: ownedLeaguesData?.length || 0,
           ownedClubs: ownedClubsData?.length || 0,
           totalMemberships: (clubMemberships?.length || 0) + (leagueMemberships?.length || 0),
-          pendingInvites: 0 // TODO: Add invites query when needed
+          pendingInvites: 0
         },
         recentActivity: []
       }
 
-      // Process clubs data
       const clubsData: ClubSummary[] = (ownedClubsData || []).map((club: any) => ({
         id: club.id,
         name: club.name,
-        slug: club.slug,
         primaryColor: club.primary_color,
         memberCount: club.club_memberships?.[0]?.count || 0,
         leagueCount: club.leagues?.[0]?.count || 0,
         isOwner: true
       }))
 
-      // Process leagues data
       const leaguesData: LeagueSummary[] = (ownedLeaguesData || []).map((league: any) => ({
         id: league.id,
         name: league.name,
-        code: league.code,
         type: league.type,
         status: league.status || 'PLANNED',
         primaryColor: league.primary_color,
@@ -236,17 +209,17 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   if (!dashboardData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-xl font-semibold text-gray-900">Failed to load dashboard</h1>
+          <h1 className="text-xl font-semibold text-muted-foreground">Failed to load dashboard</h1>
           <Button onClick={loadDashboardData} className="mt-4">Try again</Button>
         </div>
       </div>
@@ -254,368 +227,372 @@ export default function DashboardPage() {
   }
 
   const { user, stats } = dashboardData
+  const hasNoContent = clubs.length === 0 && leagues.length === 0 && stats.ownedAuctions === 0 && stats.participatedAuctions === 0
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">TossUp</h1>
-            </div>
-            <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
-              <Button variant="ghost" size="icon" className="hidden sm:flex">
-                <Bell className="h-4 w-4" />
-              </Button>
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={user.image} alt={user.name} />
-                <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <Button variant="outline" size="sm" onClick={handleSignOut} className="flex-shrink-0">
-                <LogOut className="h-4 w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">Sign Out</span>
-                <span className="sm:hidden">Out</span>
-              </Button>
+    <PageTransition>
+      <div className="min-h-screen bg-background">
+        {/* Gradient Accent Bar */}
+        <div className="h-1 gradient-accent-bar" />
+
+        {/* Header */}
+        <header className="bg-card/80 backdrop-blur-xl border-b border-border">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center">
+                <h1 className="text-2xl font-bold text-foreground">TossUp</h1>
+              </div>
+              <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+                <Button variant="ghost" size="icon" className="hidden sm:flex">
+                  <Bell className="h-4 w-4" />
+                </Button>
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={user.image} alt={user.name} />
+                  <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <Button variant="outline" size="sm" onClick={handleSignOut} className="flex-shrink-0">
+                  <LogOut className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="sm:hidden">Out</span>
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Connection Issue Banner */}
-      {hasConnectionIssue && (
-        <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <Activity className="h-5 w-5 text-amber-400" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-amber-700">
-                  <span className="font-medium">Connection Issue:</span> Unable to load some auction data.
-                  Your auctions may not be displayed completely. Please refresh the page or contact support if the issue persists.
+        {/* Connection Issue Banner */}
+        {hasConnectionIssue && (
+          <div className="bg-amber-500/10 border-l-4 border-amber-500 p-4">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center">
+                <Activity className="h-5 w-5 text-amber-400 shrink-0" />
+                <p className="ml-3 text-sm text-amber-300">
+                  <span className="font-medium">Connection Issue:</span> Unable to load some auction data. Please refresh the page.
                 </p>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user.name}!
-          </h1>
-          <p className="text-gray-600">
-            Manage your clubs, organize tournaments, run auctions, and track your cricket activities.
-          </p>
-        </div>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Welcome Section */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold mb-2">
+              <span className="bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">Welcome back, {user.name}!</span>
+            </h1>
+            <p className="text-muted-foreground">
+              Manage your clubs, organize tournaments, run auctions, and track your cricket activities.
+            </p>
+          </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Link href="/auction/create">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer">
-              <CardHeader className="pb-2">
-                <div className="flex items-center space-x-2">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Plus className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <CardTitle className="text-lg">Create Auction</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Run player auctions with sealed bidding and live streaming
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link href="/leagues/create">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer">
-              <CardHeader className="pb-2">
-                <div className="flex items-center space-x-2">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <Trophy className="h-5 w-5 text-green-600" />
-                  </div>
-                  <CardTitle className="text-lg">Create League</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Organize a tournament or seasonal league
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link href="/clubs/create">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer">
-              <CardHeader className="pb-2">
-                <div className="flex items-center space-x-2">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Users className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <CardTitle className="text-lg">Create Club</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>
-                  Manage members, facilities, and organize club activities
-                </CardDescription>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Stats Overview */}
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Activity className="h-5 w-5" />
-                  <span>Your Activity</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Link href="/auctions" className="text-center p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer block">
-                    <div className="text-2xl font-bold text-blue-600">{stats.ownedAuctions}</div>
-                    <div className="text-sm text-gray-600">Auctions Created</div>
-                  </Link>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">{stats.participatedAuctions}</div>
-                    <div className="text-sm text-gray-600">Auctions Joined</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-lg">
-                    <div className="text-2xl font-bold text-purple-600">{stats.ownedLeagues}</div>
-                    <div className="text-sm text-gray-600">Leagues Owned</div>
-                  </div>
-                  <div className="text-center p-4 bg-orange-50 rounded-lg">
-                    <div className="text-2xl font-bold text-orange-600">{stats.ownedClubs}</div>
-                    <div className="text-sm text-gray-600">Clubs Owned</div>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-gray-600">{stats.totalMemberships}</div>
-                    <div className="text-sm text-gray-600">Memberships</div>
-                  </div>
-                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                    <div className="text-2xl font-bold text-yellow-600">{stats.pendingInvites}</div>
-                    <div className="text-sm text-gray-600">Pending Invites</div>
+          {/* Guided onboarding for empty state */}
+          {hasNoContent && (
+            <Card className="mb-8 border-dashed border-2">
+              <CardContent className="py-8">
+                <div className="text-center max-w-lg mx-auto">
+                  <Trophy className="h-12 w-12 mx-auto mb-4 text-primary" />
+                  <h2 className="text-xl font-bold mb-2">Welcome to TossUp</h2>
+                  <p className="text-muted-foreground mb-6">Get started in three steps:</p>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <Button asChild variant="outline">
+                      <Link href="/clubs/create">1. Create Club</Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link href="/leagues/create">2. Start League</Link>
+                    </Button>
+                    <Button asChild className="bg-gradient-to-r from-emerald-500 to-blue-600 hover:from-emerald-400 hover:to-blue-500">
+                      <Link href="/auction/create">3. Run Auction</Link>
+                    </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
+          )}
 
-            {/* Recent Activity */}
-            {dashboardData.recentActivity.length > 0 ? (
-              <Card className="mt-6">
+          {/* Quick Actions */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {[
+              { href: '/auction/create', color: 'border-blue-500', shadowColor: 'hover:shadow-blue-500/10', icon: Plus, iconColor: 'text-blue-400', iconBg: 'bg-blue-500/10', title: 'Create Auction', desc: 'Run player auctions with sealed bidding and live streaming' },
+              { href: '/leagues/create', color: 'border-emerald-500', shadowColor: 'hover:shadow-emerald-500/10', icon: Trophy, iconColor: 'text-emerald-400', iconBg: 'bg-emerald-500/10', title: 'Create League', desc: 'Organize a tournament or seasonal league' },
+              { href: '/clubs/create', color: 'border-purple-500', shadowColor: 'hover:shadow-purple-500/10', icon: Users, iconColor: 'text-purple-400', iconBg: 'bg-purple-500/10', title: 'Create Club', desc: 'Manage members, facilities, and organize club activities' },
+            ].map((action) => {
+              const Icon = action.icon
+              return (
+                <Link key={action.href} href={action.href}>
+                  <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.2 }}>
+                    <Card className={`h-full border-t-2 ${action.color} hover:shadow-lg ${action.shadowColor} transition-all cursor-pointer`}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center space-x-2">
+                          <div className={`p-2 ${action.iconBg} rounded-lg`}>
+                            <Icon className={`h-5 w-5 ${action.iconColor}`} />
+                          </div>
+                          <CardTitle className="text-lg">{action.title}</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <CardDescription>{action.desc}</CardDescription>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                </Link>
+              )
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Stats Overview — simplified */}
+            <div className="lg:col-span-2">
+              <Card>
                 <CardHeader>
-                  <CardTitle>Recent Activity</CardTitle>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Activity className="h-5 w-5" />
+                    <span>Your Activity</span>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {dashboardData.recentActivity.map((activity) => (
-                      <div key={activity.id} className="flex items-center space-x-3">
-                        <div className="flex-shrink-0">
-                          <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Calendar className="h-4 w-4 text-blue-600" />
+                  {/* Primary numbers */}
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <Link href="/auctions" className="text-center p-6 bg-gradient-to-br from-blue-500/15 to-blue-600/5 border border-blue-500/20 rounded-xl hover:from-blue-500/25 hover:to-blue-600/10 transition-colors cursor-pointer block">
+                      <div className="text-4xl font-bold text-blue-400 tabular-nums">{stats.ownedAuctions}</div>
+                      <div className="text-sm text-muted-foreground">Auctions Created</div>
+                    </Link>
+                    <div className="text-center p-6 bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 border border-emerald-500/20 rounded-xl">
+                      <div className="text-4xl font-bold text-emerald-400 tabular-nums">{stats.participatedAuctions}</div>
+                      <div className="text-sm text-muted-foreground">Auctions Joined</div>
+                    </div>
+                  </div>
+
+                  {/* Secondary stats — compact row (only show non-zero) */}
+                  {(() => {
+                    const secondary = [
+                      { label: 'Leagues', value: stats.ownedLeagues, color: 'text-purple-400' },
+                      { label: 'Clubs', value: stats.ownedClubs, color: 'text-orange-400' },
+                      { label: 'Memberships', value: stats.totalMemberships, color: 'text-cyan-400' },
+                      { label: 'Invites', value: stats.pendingInvites, color: 'text-amber-400' },
+                    ].filter(s => s.value > 0)
+                    if (secondary.length === 0) return null
+                    return (
+                      <div className="flex flex-wrap gap-4 pt-4 border-t">
+                        {secondary.map((s) => (
+                          <div key={s.label} className="flex items-center gap-2 text-sm">
+                            <span className={`font-bold tabular-nums ${s.color}`}>{s.value}</span>
+                            <span className="text-muted-foreground">{s.label}</span>
                           </div>
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900">{activity.message}</p>
-                          <p className="text-xs text-gray-500">
-                            {new Date(activity.timestamp).toLocaleDateString()}
-                          </p>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
-            ) : (
-              <Card className="mt-6">
-                <CardContent className="text-center py-12">
-                  <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No recent activity</h3>
-                  <p className="text-gray-500 mb-4">
-                    Start by creating your first club, league, or auction to begin managing your cricket activities
-                  </p>
-                  <Link href="/auction/create">
-                    <Button>Create Your First Auction</Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            )}
-          </div>
 
-          {/* Profile & Organizations */}
-          <div className="space-y-6">
-            {/* Profile Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Avatar className="h-6 w-6">
-                    <AvatarImage src={user.image} alt={user.name} />
-                    <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <span>Profile</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground">Name</div>
-                    <div className="text-sm text-foreground">{user.name}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground">Email</div>
-                    <div className="text-sm text-foreground">{user.email}</div>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full mt-4" disabled>
-                  <Settings className="h-4 w-4 mr-2" />
-                  Edit Profile (Coming Soon)
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* My Clubs */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center space-x-2">
-                    <Shield className="h-5 w-5 text-purple-600" />
-                    <span>My Clubs ({clubs.length})</span>
-                  </CardTitle>
-                  <Link href="/clubs/create">
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      New
-                    </Button>
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {clubs.length > 0 ? (
-                  <div className="space-y-3">
-                    {clubs.slice(0, 3).map((club) => (
-                      <div key={club.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-                            style={{ backgroundColor: club.primaryColor }}
-                          >
-                            {club.name.charAt(0)}
+              {/* Recent Activity */}
+              {dashboardData.recentActivity.length > 0 ? (
+                <Card className="mt-6">
+                  <CardHeader>
+                    <CardTitle>Recent Activity</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {dashboardData.recentActivity.map((activity) => (
+                        <div key={activity.id} className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            <div className="h-8 w-8 bg-blue-500/10 rounded-full flex items-center justify-center">
+                              <Calendar className="h-4 w-4 text-blue-400" />
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-sm">{club.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {club.memberCount} members • {club.leagueCount} leagues
+                          <div className="flex-1">
+                            <p className="text-sm text-foreground">{activity.message}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(activity.timestamp).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-1">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link href={`/clubs/${club.slug}/dashboard`}>
-                              <ExternalLink className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {clubs.length > 3 && (
-                      <div className="pt-2 border-t">
-                        <Link href="/clubs">
-                          <Button variant="ghost" className="w-full text-sm">
-                            View all {clubs.length} clubs
-                          </Button>
-                        </Link>
-                      </div>
-                    )}
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="mt-6">
+                  <CardContent className="text-center py-12">
+                    <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-foreground mb-2">No recent activity</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Start by creating your first club, league, or auction to begin managing your cricket activities
+                    </p>
+                    <Link href="/auction/create">
+                      <Button className="bg-gradient-to-r from-emerald-500 to-blue-600 hover:from-emerald-400 hover:to-blue-500">Create Your First Auction</Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Profile & Organizations */}
+            <div className="space-y-6">
+              {/* Profile Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={user.image} alt={user.name} />
+                      <AvatarFallback>{user.name.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <span>Profile</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-sm font-medium text-muted-foreground">Name</div>
+                      <div className="text-sm text-foreground">{user.name}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-muted-foreground">Email</div>
+                      <div className="text-sm text-foreground">{user.email}</div>
+                    </div>
                   </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <Shield className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 mb-3">No clubs yet</p>
+                  <Button variant="outline" className="w-full mt-4" disabled>
+                    <Settings className="h-4 w-4 mr-2" />
+                    Edit Profile (Coming Soon)
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* My Clubs */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center space-x-2">
+                      <Shield className="h-5 w-5 text-purple-400" />
+                      <span>My Clubs ({clubs.length})</span>
+                    </CardTitle>
                     <Link href="/clubs/create">
-                      <Button size="sm">Create Your First Club</Button>
+                      <Button size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        New
+                      </Button>
                     </Link>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* My Leagues */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center space-x-2">
-                    <Trophy className="h-5 w-5 text-green-600" />
-                    <span>My Leagues ({leagues.length})</span>
-                  </CardTitle>
-                  <Link href="/leagues/create">
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      New
-                    </Button>
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {leagues.length > 0 ? (
-                  <div className="space-y-3">
-                    {leagues.slice(0, 3).map((league) => (
-                      <div key={league.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-                            style={{ backgroundColor: league.primaryColor }}
-                          >
-                            {league.name.charAt(0)}
+                </CardHeader>
+                <CardContent>
+                  {clubs.length > 0 ? (
+                    <div className="space-y-3">
+                      {clubs.slice(0, 3).map((club) => (
+                        <div key={club.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
+                              style={{ backgroundColor: club.primaryColor }}
+                            >
+                              {club.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{club.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {club.memberCount} members • {club.leagueCount} leagues
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-sm">{league.name}</p>
-                            <p className="text-xs text-gray-500">
-                              {league.memberCount} members • {league.auctionCount} auctions
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-1">
                           <Button variant="outline" size="sm" asChild>
-                            <Link href={`/leagues/${league.code}/dashboard`}>
+                            <Link href={`/clubs/${club.id}/dashboard`}>
                               <ExternalLink className="h-4 w-4" />
                             </Link>
                           </Button>
                         </div>
-                      </div>
-                    ))}
-                    {leagues.length > 3 && (
-                      <div className="pt-2 border-t">
-                        <Link href="/leagues">
-                          <Button variant="ghost" className="w-full text-sm">
-                            View all {leagues.length} leagues
-                          </Button>
+                      ))}
+                      {clubs.length > 3 && (
+                        <div className="pt-2 border-t">
+                          <Link href="/clubs">
+                            <Button variant="ghost" className="w-full text-sm">
+                              View all {clubs.length} clubs
+                            </Button>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    !hasNoContent && (
+                      <div className="text-center py-6">
+                        <Shield className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground mb-3">No clubs yet</p>
+                        <Link href="/clubs/create">
+                          <Button size="sm">Create Your First Club</Button>
                         </Link>
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <Trophy className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 mb-3">No leagues yet</p>
+                    )
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* My Leagues */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center space-x-2">
+                      <Trophy className="h-5 w-5 text-emerald-400" />
+                      <span>My Leagues ({leagues.length})</span>
+                    </CardTitle>
                     <Link href="/leagues/create">
-                      <Button size="sm">Create Your First League</Button>
+                      <Button size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        New
+                      </Button>
                     </Link>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent>
+                  {leagues.length > 0 ? (
+                    <div className="space-y-3">
+                      {leagues.slice(0, 3).map((league) => (
+                        <div key={league.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
+                              style={{ backgroundColor: league.primaryColor }}
+                            >
+                              {league.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{league.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {league.memberCount} members • {league.auctionCount} auctions
+                              </p>
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/leagues/${league.id}/dashboard`}>
+                              <ExternalLink className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        </div>
+                      ))}
+                      {leagues.length > 3 && (
+                        <div className="pt-2 border-t">
+                          <Link href="/leagues">
+                            <Button variant="ghost" className="w-full text-sm">
+                              View all {leagues.length} leagues
+                            </Button>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    !hasNoContent && (
+                      <div className="text-center py-6">
+                        <Trophy className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground mb-3">No leagues yet</p>
+                        <Link href="/leagues/create">
+                          <Button size="sm">Create Your First League</Button>
+                        </Link>
+                      </div>
+                    )
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </PageTransition>
   )
 }

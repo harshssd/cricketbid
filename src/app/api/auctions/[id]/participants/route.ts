@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 
 interface RouteParams {
   params: Promise<{
@@ -25,28 +25,47 @@ export async function GET(
 ) {
   try {
     const { id: auctionId } = await params
+    const supabase = await createClient()
 
-    const participations = await prisma.auctionParticipation.findMany({
-      where: { auctionId },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true, image: true }
-        },
-        team: {
-          select: { id: true, name: true, primaryColor: true }
-        }
-      },
-      orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }]
-    })
+    const { data: participations, error } = await supabase
+      .from('auction_participations')
+      .select(`
+        *,
+        user:users!user_id(id, name, email, image),
+        team:teams!team_id(id, name, primary_color)
+      `)
+      .eq('auction_id', auctionId)
+      .order('role', { ascending: true })
+      .order('joined_at', { ascending: true })
+
+    if (error) {
+      throw error
+    }
+
+    // Transform to camelCase for the consumer
+    const transformedParticipations = (participations || []).map((p: any) => ({
+      id: p.id,
+      auctionId: p.auction_id,
+      userId: p.user_id,
+      teamId: p.team_id,
+      role: p.role,
+      joinedAt: p.joined_at,
+      user: p.user,
+      team: p.team ? {
+        id: p.team.id,
+        name: p.team.name,
+        primaryColor: p.team.primary_color,
+      } : null,
+    }))
 
     return NextResponse.json({
-      participations,
+      participations: transformedParticipations,
       stats: {
-        total: participations.length,
-        owners: participations.filter(p => p.role === 'OWNER').length,
-        moderators: participations.filter(p => p.role === 'MODERATOR').length,
-        captains: participations.filter(p => p.role === 'CAPTAIN').length,
-        viewers: participations.filter(p => p.role === 'VIEWER').length,
+        total: transformedParticipations.length,
+        owners: transformedParticipations.filter((p: any) => p.role === 'OWNER').length,
+        moderators: transformedParticipations.filter((p: any) => p.role === 'MODERATOR').length,
+        captains: transformedParticipations.filter((p: any) => p.role === 'CAPTAIN').length,
+        viewers: transformedParticipations.filter((p: any) => p.role === 'VIEWER').length,
       }
     })
   } catch (error) {
@@ -67,12 +86,18 @@ export async function POST(
     const { id: auctionId } = await params
     const body = await request.json()
     const { participants, skipExisting } = addParticipantsSchema.parse(body)
+    const supabase = await createClient()
 
     // Verify auction exists
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      select: { id: true }
-    })
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) {
+      throw auctionError
+    }
 
     if (!auction) {
       return NextResponse.json(
@@ -91,27 +116,49 @@ export async function POST(
 
     for (const participant of participants) {
       try {
-        // Find or create user by email
-        let user = await prisma.user.findUnique({
-          where: { email: participant.email },
-          select: { id: true, name: true, email: true }
-        })
+        // Find user by email
+        const { data: existingUser, error: findError } = await supabase
+          .from('users')
+          .select('id, name, email')
+          .eq('email', participant.email)
+          .maybeSingle()
+
+        if (findError) {
+          throw findError
+        }
+
+        let user = existingUser
 
         if (!user) {
-          user = await prisma.user.create({
-            data: {
+          // Create new user
+          const { data: newUser, error: createError } = await supabase
+            .from('users')
+            .insert({
               name: participant.name,
               email: participant.email,
-            },
-            select: { id: true, name: true, email: true }
-          })
+            })
+            .select('id, name, email')
+            .single()
+
+          if (createError) {
+            throw createError
+          }
+
+          user = newUser
           results.created++
         }
 
         // Check if already a participant
-        const existing = await prisma.auctionParticipation.findFirst({
-          where: { auctionId, userId: user.id }
-        })
+        const { data: existing, error: checkError } = await supabase
+          .from('auction_participations')
+          .select('*')
+          .eq('auction_id', auctionId)
+          .eq('user_id', user.id)
+          .maybeSingle()
+
+        if (checkError) {
+          throw checkError
+        }
 
         if (existing) {
           if (skipExisting) {
@@ -123,13 +170,18 @@ export async function POST(
             })
             continue
           }
-          await prisma.auctionParticipation.update({
-            where: { id: existing.id },
-            data: {
+          const { error: updateError } = await supabase
+            .from('auction_participations')
+            .update({
               role: participant.role,
-              teamId: participant.teamId || existing.teamId,
-            }
-          })
+              team_id: participant.teamId || existing.team_id,
+            })
+            .eq('id', existing.id)
+
+          if (updateError) {
+            throw updateError
+          }
+
           results.added++
           results.details.push({
             name: participant.name,
@@ -139,14 +191,20 @@ export async function POST(
           continue
         }
 
-        await prisma.auctionParticipation.create({
-          data: {
-            auctionId,
-            userId: user.id,
+        // Create new participation
+        const { error: insertError } = await supabase
+          .from('auction_participations')
+          .insert({
+            auction_id: auctionId,
+            user_id: user.id,
             role: participant.role,
-            teamId: participant.teamId || null,
-          }
-        })
+            team_id: participant.teamId || null,
+          })
+
+        if (insertError) {
+          throw insertError
+        }
+
         results.added++
         results.details.push({
           name: participant.name,

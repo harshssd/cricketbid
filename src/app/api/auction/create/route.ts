@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
+import { getAuthenticatedUser } from '@/lib/auth'
 import { basicInfoSchema, auctionConfigSchema } from '@/lib/validations/auction'
 import { z } from 'zod'
 
 // Full auction creation schema
 const createAuctionSchema = z.object({
   basicInfo: basicInfoSchema,
+  leagueId: z.string().min(1, 'League is required'),
   config: auctionConfigSchema,
   teams: z.array(z.object({
     name: z.string().min(1, 'Team name is required'),
     primaryColor: z.string().default('#3B82F6'),
     secondaryColor: z.string().default('#1B2A4A'),
     logo: z.string().optional(),
-  })).min(2, 'At least 2 teams required'),
+  })).optional().default([]),
   tiers: z.array(z.object({
     name: z.string().min(1, 'Tier name is required'),
     basePrice: z.number().min(1, 'Base price must be positive'),
@@ -22,16 +24,9 @@ const createAuctionSchema = z.object({
     maxPerTeam: z.number().optional(),
     sortOrder: z.number().min(0),
   })).optional(),
-  branding: z.object({
-    logo: z.string().optional(),
-    banner: z.string().optional(),
-    primaryColor: z.string().default('#1B2A4A'),
-    secondaryColor: z.string().default('#3B82F6'),
-    bgImage: z.string().optional(),
-    font: z.string().default('system'),
-    themePreset: z.string().optional(),
-    tagline: z.string().optional(),
-  }).optional(),
+  logo: z.string().optional(),
+  primaryColor: z.string().default('#1B2A4A'),
+  secondaryColor: z.string().default('#3B82F6'),
 })
 
 export async function POST(request: NextRequest) {
@@ -41,81 +36,98 @@ export async function POST(request: NextRequest) {
     // Validate the request body
     const validatedData = createAuctionSchema.parse(body)
 
-    // For now, we'll use a mock user ID - in a real app, this would come from authentication
-    const mockUserId = 'user_mock_123'
+    // Get the authenticated user from the request headers (set by middleware)
+    const { userId } = getAuthenticatedUser(request)
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    // Create the auction in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create the auction
-      const auction = await tx.auction.create({
-        data: {
-          name: validatedData.basicInfo.name,
-          description: validatedData.basicInfo.description,
-          ownerId: mockUserId,
-          scheduledAt: validatedData.basicInfo.scheduledAt || new Date(),
-          timezone: validatedData.basicInfo.timezone || 'UTC',
-          visibility: validatedData.basicInfo.visibility,
-          passcode: validatedData.basicInfo.passcode,
-          budgetPerTeam: validatedData.config.budgetPerTeam,
-          currencyName: validatedData.config.currencyName,
-          currencyIcon: validatedData.config.currencyIcon,
-          squadSize: validatedData.config.squadSize,
-          logo: validatedData.branding?.logo,
-          banner: validatedData.branding?.banner,
-          primaryColor: validatedData.branding?.primaryColor || '#1B2A4A',
-          secondaryColor: validatedData.branding?.secondaryColor || '#3B82F6',
-          bgImage: validatedData.branding?.bgImage,
-          font: validatedData.branding?.font || 'system',
-          themePreset: validatedData.branding?.themePreset,
-          tagline: validatedData.branding?.tagline,
-          status: 'DRAFT', // Start as draft
-        }
+    const supabase = await createClient()
+
+    // Verify the league exists
+    const { data: league, error: leagueError } = await supabase
+      .from('leagues')
+      .select('id')
+      .eq('id', validatedData.leagueId)
+      .single()
+
+    if (leagueError || !league) {
+      return NextResponse.json({ error: 'League not found' }, { status: 404 })
+    }
+
+    // Create the auction
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .insert({
+        name: validatedData.basicInfo.name,
+        description: validatedData.basicInfo.description,
+        owner_id: userId,
+        league_id: validatedData.leagueId,
+        visibility: validatedData.basicInfo.visibility,
+        budget_per_team: validatedData.config.budgetPerTeam,
+        currency_name: validatedData.config.currencyName,
+        currency_icon: validatedData.config.currencyIcon,
+        squad_size: validatedData.config.squadSize,
+        logo: validatedData.logo,
+        primary_color: validatedData.primaryColor || '#1B2A4A',
+        secondary_color: validatedData.secondaryColor || '#3B82F6',
+        status: 'DRAFT',
       })
+      .select()
+      .single()
 
-      // Create teams
-      const teamPromises = validatedData.teams.map((team) =>
-        tx.team.create({
-          data: {
-            auctionId: auction.id,
-            name: team.name,
-            primaryColor: team.primaryColor,
-            secondaryColor: team.secondaryColor,
-            logo: team.logo,
-            budgetRemaining: validatedData.config.budgetPerTeam,
-          }
-        })
-      )
-      const teams = await Promise.all(teamPromises)
+    if (auctionError) throw auctionError
 
-      // Create tiers if provided
-      let tiers: any[] = []
-      if (validatedData.tiers && validatedData.tiers.length > 0) {
-        const tierPromises = validatedData.tiers.map((tier) =>
-          tx.tier.create({
-            data: {
-              auctionId: auction.id,
-              name: tier.name,
-              basePrice: tier.basePrice,
-              color: tier.color,
-              icon: tier.icon,
-              sortOrder: tier.sortOrder,
-              minPerTeam: tier.minPerTeam,
-              maxPerTeam: tier.maxPerTeam,
-            }
-          })
-        )
-        tiers = await Promise.all(tierPromises)
-      }
+    // Create teams
+    let teams: any[] = []
+    if (validatedData.teams.length > 0) {
+      const teamRows = validatedData.teams.map((team) => ({
+        auction_id: auction.id,
+        name: team.name,
+        primary_color: team.primaryColor,
+        secondary_color: team.secondaryColor,
+        logo: team.logo,
+        budget_remaining: validatedData.config.budgetPerTeam,
+      }))
 
-      return { auction, teams, tiers }
-    })
+      const { data: createdTeams, error: teamsError } = await supabase
+        .from('teams')
+        .insert(teamRows)
+        .select()
+
+      if (teamsError) throw teamsError
+      teams = createdTeams || []
+    }
+
+    // Create tiers if provided
+    let tiers: any[] = []
+    if (validatedData.tiers && validatedData.tiers.length > 0) {
+      const tierRows = validatedData.tiers.map((tier) => ({
+        auction_id: auction.id,
+        name: tier.name,
+        base_price: tier.basePrice,
+        color: tier.color,
+        icon: tier.icon,
+        sort_order: tier.sortOrder,
+        min_per_team: tier.minPerTeam,
+        max_per_team: tier.maxPerTeam,
+      }))
+
+      const { data: createdTiers, error: tiersError } = await supabase
+        .from('tiers')
+        .insert(tierRows)
+        .select()
+
+      if (tiersError) throw tiersError
+      tiers = createdTiers || []
+    }
 
     return NextResponse.json({
-      id: result.auction.id,
+      id: auction.id,
       message: 'Auction created successfully',
-      auction: result.auction,
-      teams: result.teams,
-      tiers: result.tiers,
+      auction,
+      teams,
+      tiers,
     }, { status: 201 })
 
   } catch (error) {

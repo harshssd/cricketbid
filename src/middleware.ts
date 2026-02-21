@@ -46,6 +46,12 @@ function checkRateLimit(request: NextRequest, config: RateLimitConfig): boolean 
 
 function addSecurityHeaders(response: NextResponse): NextResponse {
   // Content Security Policy
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const isLocalSupabase = supabaseUrl.includes('127.0.0.1') || supabaseUrl.includes('localhost')
+  const connectSrc = isLocalSupabase
+    ? `'self' ${supabaseUrl} ws://127.0.0.1:* wss://127.0.0.1:* https://*.supabase.co wss://*.supabase.co https://api.stripe.com`
+    : `'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com`
+
   response.headers.set(
     'Content-Security-Policy',
     [
@@ -54,7 +60,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https: blob:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+      `connect-src ${connectSrc}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'"

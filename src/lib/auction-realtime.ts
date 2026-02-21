@@ -124,7 +124,7 @@ class AuctionRealtimeManager {
         .from('live_auctions')
         .select('*')
         .eq('id', this.currentAuctionId)
-        .single()
+        .maybeSingle()
 
       if (auctionData) {
         const state: AuctionState = JSON.parse(auctionData.state)

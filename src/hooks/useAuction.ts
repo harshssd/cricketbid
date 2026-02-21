@@ -6,19 +6,11 @@ export interface AuctionDetail {
   id: string
   name: string
   description?: string
-  scheduledAt: Date
-  timezone: string
   status: 'DRAFT' | 'LOBBY' | 'LIVE' | 'COMPLETED' | 'ARCHIVED'
   visibility: 'PUBLIC' | 'PRIVATE'
-  passcode?: string
   primaryColor: string
   secondaryColor: string
   logo?: string
-  banner?: string
-  bgImage?: string
-  font: string
-  themePreset?: string
-  tagline?: string
   budgetPerTeam: number
   currencyName: string
   currencyIcon: string
@@ -30,8 +22,6 @@ export interface AuctionDetail {
   league?: {
     id: string
     name: string
-    code: string
-    type: string
     logo?: string
     primaryColor: string
   }
@@ -176,7 +166,6 @@ export function useAuction(auctionId: string): UseAuctionReturn {
       // Transform dates back to Date objects
       const transformedAuction: AuctionDetail = {
         ...data,
-        scheduledAt: new Date(data.scheduledAt),
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt),
         participations: data.participations.map((p: any) => ({

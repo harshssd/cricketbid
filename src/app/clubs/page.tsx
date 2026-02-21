@@ -16,12 +16,9 @@ import {
   Search,
   Filter,
   Crown,
-  Settings,
   ArrowLeft,
   ExternalLink,
   Star,
-  MapPin,
-  Globe,
   Trophy
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -32,11 +29,8 @@ interface ClubSummary {
   id: string
   name: string
   description?: string
-  code: string
   primaryColor: string
   visibility: Visibility
-  location?: string
-  website?: string
   memberCount: number
   leagueCount: number
   userRole: OrganizationRole
@@ -45,10 +39,9 @@ interface ClubSummary {
   lastActivity?: Date
 }
 
-const VISIBILITY_COLORS = {
-  PUBLIC: 'bg-green-100 text-green-800',
-  PRIVATE: 'bg-red-100 text-red-800',
-  INVITE_ONLY: 'bg-orange-100 text-orange-800'
+const VISIBILITY_COLORS: Record<Visibility, string> = {
+  PUBLIC: 'bg-success/10 text-success',
+  PRIVATE: 'bg-destructive/10 text-destructive',
 }
 
 export default function ClubsPage() {
@@ -106,11 +99,8 @@ export default function ClubsPage() {
           id: club.id,
           name: club.name,
           description: club.description,
-          code: club.slug,
           primaryColor: club.primary_color,
           visibility: club.visibility,
-          location: club.location,
-          website: club.website,
           memberCount: club.club_memberships?.[0]?.count ?? 0,
           leagueCount: club.leagues?.[0]?.count ?? 0,
           userRole: 'OWNER',
@@ -129,11 +119,8 @@ export default function ClubsPage() {
           id: club.id,
           name: club.name,
           description: club.description,
-          code: club.slug,
           primaryColor: club.primary_color,
           visibility: club.visibility,
-          location: club.location,
-          website: club.website,
           memberCount: club.club_memberships?.[0]?.count ?? 0,
           leagueCount: club.leagues?.[0]?.count ?? 0,
           userRole: membership.role,
@@ -160,9 +147,7 @@ export default function ClubsPage() {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(club =>
         club.name.toLowerCase().includes(query) ||
-        club.code.toLowerCase().includes(query) ||
-        club.description?.toLowerCase().includes(query) ||
-        club.location?.toLowerCase().includes(query)
+        club.description?.toLowerCase().includes(query)
       )
     }
 
@@ -179,41 +164,33 @@ export default function ClubsPage() {
   const getRoleIcon = (role: OrganizationRole) => {
     switch (role) {
       case 'OWNER':
-        return <Crown className="h-4 w-4 text-yellow-600" />
-      case 'ADMIN':
-        return <Shield className="h-4 w-4 text-blue-600" />
-      case 'MODERATOR':
-        return <Settings className="h-4 w-4 text-green-600" />
+        return <Crown className="h-4 w-4 text-warning" />
       default:
-        return <Users className="h-4 w-4 text-gray-600" />
+        return <Users className="h-4 w-4 text-muted-foreground" />
     }
   }
 
   const getRoleBadgeColor = (role: OrganizationRole) => {
     switch (role) {
       case 'OWNER':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'ADMIN':
-        return 'bg-blue-100 text-blue-800'
-      case 'MODERATOR':
-        return 'bg-green-100 text-green-800'
+        return 'bg-warning/10 text-warning'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-muted text-muted-foreground'
     }
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-card shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
@@ -223,7 +200,7 @@ export default function ClubsPage() {
                   Dashboard
                 </Button>
               </Link>
-              <h1 className="text-2xl font-bold text-gray-900">My Clubs</h1>
+              <h1 className="text-2xl font-bold text-foreground">My Clubs</h1>
             </div>
             <Button asChild>
               <Link href="/clubs/create">
@@ -241,12 +218,12 @@ export default function ClubsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Shield className="h-6 w-6 text-blue-600" />
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Shield className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total Clubs</p>
-                  <p className="text-2xl font-bold text-gray-900">{clubs.length}</p>
+                  <p className="text-sm text-muted-foreground">Total Clubs</p>
+                  <p className="text-2xl font-bold text-foreground">{clubs.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -255,12 +232,12 @@ export default function ClubsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-yellow-100 rounded-lg">
-                  <Crown className="h-6 w-6 text-yellow-600" />
+                <div className="p-2 bg-warning/10 rounded-lg">
+                  <Crown className="h-6 w-6 text-warning" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Owned</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Owned</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {clubs.filter(c => c.isOwner).length}
                   </p>
                 </div>
@@ -271,12 +248,12 @@ export default function ClubsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Users className="h-6 w-6 text-green-600" />
+                <div className="p-2 bg-success/10 rounded-lg">
+                  <Users className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Member</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Member</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {clubs.filter(c => !c.isOwner).length}
                   </p>
                 </div>
@@ -287,12 +264,12 @@ export default function ClubsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Trophy className="h-6 w-6 text-purple-600" />
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Trophy className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total Leagues</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-sm text-muted-foreground">Total Leagues</p>
+                  <p className="text-2xl font-bold text-foreground">
                     {clubs.reduce((sum, c) => sum + c.leagueCount, 0)}
                   </p>
                 </div>
@@ -304,7 +281,7 @@ export default function ClubsPage() {
         {/* Filters */}
         <div className="mb-6 flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search clubs..."
               value={searchQuery}
@@ -353,7 +330,6 @@ export default function ClubsPage() {
                       </div>
                       <div>
                         <CardTitle className="text-lg">{club.name}</CardTitle>
-                        <p className="text-sm text-gray-500">{club.code}</p>
                       </div>
                     </div>
                     {club.isOwner && (
@@ -363,7 +339,7 @@ export default function ClubsPage() {
                 </CardHeader>
                 <CardContent>
                   {club.description && (
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
                       {club.description}
                     </p>
                   )}
@@ -378,7 +354,7 @@ export default function ClubsPage() {
                     </Badge>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                     <div className="flex items-center space-x-4">
                       <div className="flex items-center space-x-1">
                         <Users className="h-4 w-4" />
@@ -391,33 +367,9 @@ export default function ClubsPage() {
                     </div>
                   </div>
 
-                  {(club.location || club.website) && (
-                    <div className="flex items-center space-x-3 text-sm text-gray-500 mb-4">
-                      {club.location && (
-                        <div className="flex items-center space-x-1">
-                          <MapPin className="h-4 w-4" />
-                          <span>{club.location}</span>
-                        </div>
-                      )}
-                      {club.website && (
-                        <div className="flex items-center space-x-1">
-                          <Globe className="h-4 w-4" />
-                          <a
-                            href={club.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:underline"
-                          >
-                            Website
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   <div className="flex space-x-2">
                     <Button asChild className="flex-1" size="sm">
-                      <Link href={`/clubs/${club.code}/dashboard`}>
+                      <Link href={`/clubs/${club.id}/dashboard`}>
                         Dashboard
                       </Link>
                     </Button>
@@ -426,7 +378,7 @@ export default function ClubsPage() {
                     </Button>
                   </div>
 
-                  <div className="text-xs text-gray-400 mt-3 pt-3 border-t">
+                  <div className="text-xs text-muted-foreground mt-3 pt-3 border-t">
                     {club.lastActivity ? (
                       <>Last active: {club.lastActivity.toLocaleDateString()}</>
                     ) : (
@@ -439,11 +391,11 @@ export default function ClubsPage() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <Shield className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            <Shield className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-foreground mb-2">
               {searchQuery.trim() ? 'No clubs found' : 'No clubs yet'}
             </h3>
-            <p className="text-gray-500 mb-6">
+            <p className="text-muted-foreground mb-6">
               {searchQuery.trim()
                 ? 'Try adjusting your search or filters'
                 : 'Create your first club to start organizing cricket activities and auctions'

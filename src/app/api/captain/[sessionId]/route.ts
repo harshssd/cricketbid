@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { verifyTeamAdminAccess, getAuthenticatedUser } from '@/lib/auth'
 
 interface RouteParams {
@@ -11,6 +11,7 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { sessionId } = await params
 
     // The sessionId format will be: auctionId-teamId
@@ -48,114 +49,127 @@ export async function GET(
     }
 
     // Fetch auction details
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        teams: {
-          where: { id: teamId },
-          include: {
-            captain: {
-              select: { id: true, name: true, email: true, image: true }
-            },
-            _count: { select: { players: true } }
-          }
-        },
-        rounds: {
-          where: { status: 'OPEN' },
-          include: {
-            tier: {
-              select: { id: true, name: true, basePrice: true, color: true }
-            },
-            bids: {
-              where: {
-                captain: {
-                  captainedTeams: {
-                    some: { id: teamId }
-                  }
-                }
-              },
-              select: { amount: true, submittedAt: true, isWinningBid: true }
-            },
-            _count: { select: { bids: true } }
-          },
-          orderBy: { openedAt: 'desc' },
-          take: 1
-        },
-        tiers: {
-          orderBy: { sortOrder: 'asc' }
-        }
-      }
-    })
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id, name, status, currency_name, currency_icon, budget_per_team')
+      .eq('id', auctionId)
+      .maybeSingle()
 
-    if (!auction) {
+    if (auctionError || !auction) {
       return NextResponse.json(
         { error: 'Auction not found' },
         { status: 404 }
       )
     }
 
-    const team = auction.teams[0]
-    if (!team) {
+    // Fetch team for this auction
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, name, primary_color, budget_remaining, captain_id, captain:users!captain_id(id, name, email, image), players:players(id)')
+      .eq('id', teamId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (teamError || !team) {
       return NextResponse.json(
         { error: 'Team not found in this auction' },
         { status: 404 }
       )
     }
 
+    // Fetch open rounds for this auction
+    const { data: openRounds, error: roundsError } = await supabase
+      .from('rounds')
+      .select('id, tier_id, status, closed_at, timer_seconds, opened_at')
+      .eq('auction_id', auctionId)
+      .eq('status', 'OPEN')
+      .order('opened_at', { ascending: false })
+      .limit(1)
+
+    if (roundsError) {
+      throw roundsError
+    }
+
+    // Fetch tiers for this auction
+    const { data: tiers, error: tiersError } = await supabase
+      .from('tiers')
+      .select('*')
+      .eq('auction_id', auctionId)
+      .order('sort_order', { ascending: true })
+
+    if (tiersError) {
+      throw tiersError
+    }
+
     // Get current round (if any)
-    const currentRound = auction.rounds[0]
+    const currentRound = openRounds?.[0]
     let currentRoundData = null
 
     if (currentRound) {
+      // Get total bid count for this round
+      const { count: totalBids } = await supabase
+        .from('bids')
+        .select('*', { count: 'exact', head: true })
+        .eq('round_id', currentRound.id)
+
       // Get highest bid for this round
-      const highestBidResult = await prisma.bid.findFirst({
-        where: { roundId: currentRound.id },
-        orderBy: { amount: 'desc' },
-        select: { amount: true }
-      })
+      const { data: highestBidResult } = await supabase
+        .from('bids')
+        .select('amount')
+        .eq('round_id', currentRound.id)
+        .order('amount', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      // Get tier info for this round
+      const tier = tiers?.find(t => t.id === currentRound.tier_id)
 
       // Get players for the current round's tier
-      const playersInTier = await prisma.player.findMany({
-        where: {
-          tierId: currentRound.tierId,
-          status: 'AVAILABLE'
-        },
-        select: {
-          id: true,
-          name: true,
-          image: true,
-          playingRole: true
-        },
-        take: 1 // For now, get the first available player in the tier
-      })
+      const { data: playersInTier } = await supabase
+        .from('players')
+        .select('id, name, image, playing_role')
+        .eq('tier_id', currentRound.tier_id)
+        .eq('status', 'AVAILABLE')
+        .limit(1) // For now, get the first available player in the tier
 
-      const currentPlayer = playersInTier[0]
+      const currentPlayer = playersInTier?.[0]
 
       // Find captain's bid for this round
-      const captainBid = currentRound.bids[0]
+      // The captain is the team's captain, so we look for bids by users who captain this team
+      const { data: captainBid } = await supabase
+        .from('bids')
+        .select('amount, submitted_at, is_winning_bid')
+        .eq('round_id', currentRound.id)
+        .eq('captain_id', team.captain_id)
+        .maybeSingle()
 
       currentRoundData = {
         id: currentRound.id,
-        tierId: currentRound.tierId,
+        tierId: currentRound.tier_id,
         status: currentRound.status,
-        timeRemaining: currentRound.closedAt ?
-          Math.max(0, Math.floor((new Date(currentRound.closedAt).getTime() - Date.now()) / 1000)) :
+        timeRemaining: currentRound.closed_at ?
+          Math.max(0, Math.floor((new Date(currentRound.closed_at).getTime() - Date.now()) / 1000)) :
           null,
-        maxTime: currentRound.timerSeconds || 300,
+        maxTime: currentRound.timer_seconds || 300,
         player: currentPlayer ? {
           id: currentPlayer.id,
           name: currentPlayer.name,
           image: currentPlayer.image,
-          playingRole: currentPlayer.playingRole
+          playingRole: currentPlayer.playing_role
         } : null,
-        tier: currentRound.tier,
+        tier: tier ? {
+          id: tier.id,
+          name: tier.name,
+          basePrice: tier.base_price,
+          color: tier.color
+        } : null,
         myBid: captainBid ? {
           amount: captainBid.amount,
-          submittedAt: captainBid.submittedAt,
-          status: captainBid.isWinningBid ? 'WINNING' : 'SUBMITTED'
+          submittedAt: captainBid.submitted_at,
+          status: captainBid.is_winning_bid ? 'WINNING' : 'SUBMITTED'
         } : undefined,
         highestBid: highestBidResult?.amount,
-        totalBids: currentRound._count.bids
+        totalBids: totalBids ?? 0
       }
     }
 
@@ -166,16 +180,16 @@ export async function GET(
         id: auction.id,
         name: auction.name,
         status: auction.status,
-        currencyName: auction.currencyName,
-        currencyIcon: auction.currencyIcon
+        currencyName: auction.currency_name,
+        currencyIcon: auction.currency_icon
       },
       team: {
         id: team.id,
         name: team.name,
-        primaryColor: team.primaryColor,
-        remainingBudget: team.budgetRemaining ?? auction.budgetPerTeam,
-        totalBudget: auction.budgetPerTeam,
-        playerCount: team._count.players,
+        primaryColor: team.primary_color,
+        remainingBudget: team.budget_remaining ?? auction.budget_per_team,
+        totalBudget: auction.budget_per_team,
+        playerCount: team.players?.length ?? 0,
         captain: team.captain
       },
       currentRound: currentRoundData,

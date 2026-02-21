@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 
@@ -39,8 +38,10 @@ async function checkDatabase(): Promise<HealthCheck['checks']['database']> {
   const start = Date.now()
 
   try {
-    // Simple query to test database connectivity
-    await prisma.$queryRaw`SELECT 1`
+    // Simple query to test database connectivity via Supabase
+    const supabase = await createClient()
+    const { error } = await supabase.from('users').select('id', { count: 'exact', head: true })
+    if (error) throw error
     const responseTime = Date.now() - start
 
     return {

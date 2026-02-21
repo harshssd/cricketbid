@@ -2,15 +2,6 @@ import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { WizardLayout } from '@/components/wizard/WizardLayout'
 
-// Mock AutoSaveIndicator since it's a dependency
-jest.mock('@/components/wizard/AutoSaveIndicator', () => ({
-  AutoSaveIndicator: ({ lastSaved }: { lastSaved?: string }) => (
-    <div data-testid="auto-save-indicator">
-      {lastSaved ? `Last saved: ${lastSaved}` : 'Not saved'}
-    </div>
-  ),
-}))
-
 describe('WizardLayout Component', () => {
   const mockSteps = [
     {
@@ -159,7 +150,7 @@ describe('WizardLayout Component', () => {
       render(<WizardLayout {...defaultProps} />)
 
       const activeStepButton = screen.getByText('Basic Information').closest('button')
-      expect(activeStepButton).toHaveClass('bg-blue-50')
+      expect(activeStepButton).toHaveClass('bg-info/10')
     })
 
     it('should apply correct styling for disabled step', () => {
@@ -324,19 +315,17 @@ describe('WizardLayout Component', () => {
   })
 
   describe('Auto-save Indicator', () => {
-    it('should show auto-save indicator with last modified time', () => {
+    it('should show last saved time when lastModified is provided', () => {
       const lastModified = new Date().toISOString()
       render(<WizardLayout {...defaultProps} lastModified={lastModified} />)
 
-      expect(screen.getByTestId('auto-save-indicator')).toBeInTheDocument()
-      expect(screen.getByText(`Last saved: ${lastModified}`)).toBeInTheDocument()
+      expect(screen.getByText(/Last saved:/)).toBeInTheDocument()
     })
 
-    it('should show not saved when no lastModified', () => {
+    it('should not show last saved when no lastModified', () => {
       render(<WizardLayout {...defaultProps} />)
 
-      expect(screen.getByTestId('auto-save-indicator')).toBeInTheDocument()
-      expect(screen.getByText('Not saved')).toBeInTheDocument()
+      expect(screen.queryByText(/Last saved:/)).not.toBeInTheDocument()
     })
   })
 

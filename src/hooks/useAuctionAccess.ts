@@ -22,8 +22,8 @@ interface UseAuctionAccessReturn {
   user: AuthUser | null
   loading: boolean
   error: string | null
-  joinAuction: (passcode?: string, role?: 'CAPTAIN' | 'VIEWER', teamId?: string) => Promise<boolean>
-  checkAccess: (passcode?: string) => Promise<void>
+  joinAuction: (role?: 'CAPTAIN' | 'VIEWER', teamId?: string) => Promise<boolean>
+  checkAccess: () => Promise<void>
 }
 
 export function useAuctionAccess(auctionId: string): UseAuctionAccessReturn {
@@ -32,17 +32,12 @@ export function useAuctionAccess(auctionId: string): UseAuctionAccessReturn {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const checkAccess = async (passcode?: string) => {
+  const checkAccess = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      const params = new URLSearchParams()
-      if (passcode) {
-        params.append('passcode', passcode)
-      }
-
-      const response = await fetch(`/api/auctions/${auctionId}/join?${params}`, {
+      const response = await fetch(`/api/auctions/${auctionId}/join`, {
         headers: {
           'Authorization': `Bearer ${getAuthToken()}`,
         }
@@ -65,7 +60,6 @@ export function useAuctionAccess(auctionId: string): UseAuctionAccessReturn {
   }
 
   const joinAuction = async (
-    passcode?: string,
     role: 'CAPTAIN' | 'VIEWER' = 'VIEWER',
     teamId?: string
   ): Promise<boolean> => {
@@ -80,7 +74,6 @@ export function useAuctionAccess(auctionId: string): UseAuctionAccessReturn {
           'Authorization': `Bearer ${getAuthToken()}`,
         },
         body: JSON.stringify({
-          passcode,
           role,
           teamId,
         }),

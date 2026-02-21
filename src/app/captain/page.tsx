@@ -205,12 +205,12 @@ export default function CaptainPage() {
 
   if (!auction) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8">
           <CardContent className="text-center">
-            <RefreshCw className="h-12 w-12 mx-auto mb-4 text-gray-400 animate-spin" />
+            <RefreshCw className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
             <h1 className="text-xl font-bold mb-2">Loading Auction...</h1>
-            <p className="text-gray-600">Connecting to auction system</p>
+            <p className="text-muted-foreground">Connecting to auction system</p>
           </CardContent>
         </Card>
       </div>
@@ -219,12 +219,12 @@ export default function CaptainPage() {
 
   if (!auction.auctionStarted) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8">
           <CardContent className="text-center">
             <Clock className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
             <h1 className="text-xl font-bold mb-2">Auction Not Started</h1>
-            <p className="text-gray-600">Please wait for the auctioneer to begin</p>
+            <p className="text-muted-foreground">Please wait for the auctioneer to begin</p>
           </CardContent>
         </Card>
       </div>
@@ -234,11 +234,11 @@ export default function CaptainPage() {
   // Team selection screen
   if (!selectedTeam) {
     return (
-      <div className="min-h-screen bg-gray-50 py-8">
+      <div className="min-h-screen bg-background py-8">
         <div className="max-w-4xl mx-auto px-4">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Select Your Team</h1>
-            <p className="text-gray-600">Choose the team you'll be captaining in {auction.name}</p>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Select Your Team</h1>
+            <p className="text-muted-foreground">Choose the team you'll be captaining in {auction.name}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -252,7 +252,7 @@ export default function CaptainPage() {
                     </AvatarFallback>
                   </Avatar>
                   <h3 className="text-xl font-bold mb-2">{team.name}</h3>
-                  <div className="space-y-2 text-sm text-gray-600">
+                  <div className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex justify-between">
                       <span>Coins:</span>
                       <span className="font-medium">{team.coins}</span>
@@ -277,12 +277,12 @@ export default function CaptainPage() {
 
   if (!currentPlayer) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8">
           <CardContent className="text-center">
             <Trophy className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
             <h1 className="text-xl font-bold mb-2">Auction Complete</h1>
-            <p className="text-gray-600">All players have been auctioned</p>
+            <p className="text-muted-foreground">All players have been auctioned</p>
           </CardContent>
         </Card>
       </div>
@@ -290,14 +290,14 @@ export default function CaptainPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-card shadow-sm border-b">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold">{auction.name}</h1>
-              <p className="text-sm text-gray-600">Captain Dashboard</p>
+              <p className="text-sm text-muted-foreground">Captain Dashboard</p>
             </div>
             <div className="flex items-center space-x-4">
               <Badge variant="secondary">{selectedTeam}</Badge>
@@ -317,22 +317,22 @@ export default function CaptainPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                 {viewConfig.showTeamRemainingCoins && (
                   <div>
-                    <div className="text-2xl font-bold text-blue-600">{teamData?.coins}</div>
-                    <div className="text-sm text-gray-600">Coins Remaining</div>
+                    <div className="text-2xl font-bold text-primary">{teamData?.coins}</div>
+                    <div className="text-sm text-muted-foreground">Coins Remaining</div>
                   </div>
                 )}
                 {viewConfig.showTeamSquadSize && (
                   <div>
-                    <div className="text-2xl font-bold text-green-600">{teamData?.players.length}/12</div>
-                    <div className="text-sm text-gray-600">Squad Size</div>
+                    <div className="text-2xl font-bold text-success">{teamData?.players.length}/12</div>
+                    <div className="text-sm text-muted-foreground">Squad Size</div>
                   </div>
                 )}
                 {viewConfig.showTeamSpending && (
                   <div>
-                    <div className="text-2xl font-bold text-purple-600">
+                    <div className="text-2xl font-bold text-primary">
                       {teamData ? teamData.originalCoins - teamData.coins : 0}
                     </div>
-                    <div className="text-sm text-gray-600">Total Spent</div>
+                    <div className="text-sm text-muted-foreground">Total Spent</div>
                   </div>
                 )}
               </div>
@@ -400,10 +400,10 @@ export default function CaptainPage() {
               )}
 
               {currentBid?.player === currentPlayer && (
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-center p-3 bg-info/10 rounded-lg">
                   <div className="flex items-center justify-center space-x-2">
-                    <CheckCircle className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-800">
+                    <CheckCircle className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium text-info-foreground">
                       Active bid: {currentBid.amount} coins
                     </span>
                   </div>
@@ -412,9 +412,9 @@ export default function CaptainPage() {
 
               {message && (
                 <div className={`p-3 rounded-lg ${
-                  message.type === 'success' ? 'bg-green-50 text-green-800' :
-                  message.type === 'error' ? 'bg-red-50 text-red-800' :
-                  'bg-blue-50 text-blue-800'
+                  message.type === 'success' ? 'bg-success/10 text-success-foreground' :
+                  message.type === 'error' ? 'bg-destructive/10 text-destructive' :
+                  'bg-info/10 text-info-foreground'
                 }`}>
                   <div className="flex items-center space-x-2">
                     {message.type === 'error' && <AlertCircle className="h-4 w-4" />}
@@ -424,7 +424,7 @@ export default function CaptainPage() {
                 </div>
               )}
 
-              <div className="text-center text-xs text-gray-500">
+              <div className="text-center text-xs text-muted-foreground">
                 Max bid: {teamData ? teamData.coins - Math.max(0, 11 - teamData.players.length - 1) * 30 : 0} coins
                 <br />
                 (Reserve {Math.max(0, 11 - (teamData?.players.length || 0) - 1) * 30} for mandatory slots)
@@ -444,19 +444,19 @@ export default function CaptainPage() {
               {teamData && teamData.players.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {teamData.players.map((player, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div key={i} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                       <div>
                         <div className="font-medium">{player.name}</div>
                         {viewConfig.showTeamPlayerDetails && (
                           <Badge className="text-xs">Tier {player.tier}</Badge>
                         )}
                       </div>
-                      <div className="font-bold text-green-600">{player.price}</div>
+                      <div className="font-bold text-success">{player.price}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No players acquired yet</p>
                 </div>

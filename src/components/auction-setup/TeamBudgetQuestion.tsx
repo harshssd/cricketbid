@@ -1,63 +1,69 @@
-import { useState } from 'react'
-import { Input } from '@/components/ui/input'
+'use client'
+
+import { motion, AnimatePresence } from 'framer-motion'
+import { Slider } from '@/components/ui/slider'
 
 interface TeamBudgetQuestionProps {
   value: number
   onChange: (value: number) => void
 }
 
+const presets = [300, 600, 1000, 2000, 5000]
+
 export function TeamBudgetQuestion({ value, onChange }: TeamBudgetQuestionProps) {
-  const [inputValue, setInputValue] = useState(value.toString())
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value
-    setInputValue(newValue)
-
-    // Only update parent if it's a valid number
-    const numValue = parseInt(newValue)
-    if (!isNaN(numValue) && numValue > 0) {
-      onChange(numValue)
-    }
-  }
-
-  const handleInputClick = (e: React.MouseEvent<HTMLInputElement>) => {
-    e.currentTarget.select()
-  }
-
   return (
     <div className="max-w-md mx-auto">
-      <div className="mb-6">
-        <label className="block text-lg font-medium text-gray-300 mb-4">
+      <div className="mb-8">
+        <label className="block text-lg font-medium text-muted-foreground mb-6">
           Starting coins per team
         </label>
 
-        <div className="relative">
-          <Input
-            type="number"
-            value={inputValue}
-            onChange={handleInputChange}
-            onClick={handleInputClick}
-            placeholder="e.g| 600"
-            min="100"
-            max="10000"
-            className="w-full h-16 text-2xl text-center bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
-          />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2">
-            <button
-              className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white"
-              onClick={() => {
-                const newVal = Math.max(100, value - 50)
-                setInputValue(newVal.toString())
-                onChange(newVal)
-              }}
+        {/* Large animated number display */}
+        <div className="flex justify-center mb-6">
+          <AnimatePresence mode="popLayout">
+            <motion.span
+              key={value}
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 10, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="text-6xl font-bold text-foreground tabular-nums"
             >
-              ▼
-            </button>
-          </div>
+              {value}
+            </motion.span>
+          </AnimatePresence>
         </div>
+
+        {/* Quick-select buttons */}
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {presets.map((preset) => (
+            <motion.button
+              key={preset}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onChange(preset)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors tabular-nums ${
+                value === preset
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              {preset.toLocaleString()}
+            </motion.button>
+          ))}
+        </div>
+
+        {/* Slider */}
+        <Slider
+          value={[value]}
+          onValueChange={([v]) => onChange(v)}
+          min={100}
+          max={10000}
+          step={50}
+        />
       </div>
 
-      <div className="text-center text-gray-400 text-sm">
+      <div className="text-center text-muted-foreground text-sm">
         Between 100 and 10,000 coins
       </div>
     </div>

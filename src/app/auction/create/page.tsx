@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Users } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Progress } from '@/components/ui/progress'
+import { PageTransition } from '@/components/PageTransition'
 
 // Question components
 import { PlayerPoolSizeQuestion } from '@/components/auction-setup/PlayerPoolSizeQuestion'
@@ -13,6 +14,7 @@ import { TeamCountQuestion } from '@/components/auction-setup/TeamCountQuestion'
 import { TeamBudgetQuestion } from '@/components/auction-setup/TeamBudgetQuestion'
 import { AuctionNameQuestion } from '@/components/auction-setup/AuctionNameQuestion'
 import { FinalSetupQuestion } from '@/components/auction-setup/FinalSetupQuestion'
+import { PresetSelectionStep } from '@/components/auction-setup/PresetSelectionStep'
 
 interface AuctionSetup {
   playerPoolSize: number
@@ -23,6 +25,12 @@ interface AuctionSetup {
 }
 
 const QUESTIONS = [
+  {
+    id: 0,
+    title: 'Choose Your Setup',
+    subtitle: 'Pick a preset to get started quickly, or configure everything yourself',
+    description: ''
+  },
   {
     id: 1,
     title: 'Player Pool Size',
@@ -56,8 +64,19 @@ const QUESTIONS = [
 ]
 
 export default function CreateAuctionPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
+      <CreateAuctionContent />
+    </Suspense>
+  )
+}
+
+function CreateAuctionContent() {
   const router = useRouter()
-  const [currentQuestion, setCurrentQuestion] = useState(1)
+  const searchParams = useSearchParams()
+  const leagueId = searchParams.get('league')
+  const [currentQuestion, setCurrentQuestion] = useState(0)
+  const [direction, setDirection] = useState(1) // 1 = forward, -1 = backward
   const [setup, setSetup] = useState<AuctionSetup>({
     playerPoolSize: 50,
     teamCount: 4,
@@ -66,11 +85,11 @@ export default function CreateAuctionPage() {
     teams: []
   })
 
-  const currentQuestionData = QUESTIONS[currentQuestion - 1]
-  const progress = (currentQuestion / QUESTIONS.length) * 100
+  const currentQuestionData = QUESTIONS[currentQuestion]
+  // Preset step (0) doesn't count toward progress; steps 1-5 do
+  const progress = currentQuestion === 0 ? 0 : (currentQuestion / (QUESTIONS.length - 1)) * 100
 
   useEffect(() => {
-    // Initialize teams when team count changes
     if (setup.teamCount > 0) {
       const newTeams = Array.from({ length: setup.teamCount }, (_, i) => ({
         name: `Team ${i + 1}`,
@@ -80,20 +99,39 @@ export default function CreateAuctionPage() {
     }
   }, [setup.teamCount, setup.teamBudget])
 
+  const handlePresetSelect = (preset: 'quick' | 'full' | 'custom') => {
+    if (preset === 'quick') {
+      setSetup(prev => ({ ...prev, teamCount: 4, playerPoolSize: 50, teamBudget: 600 }))
+      setDirection(1)
+      setCurrentQuestion(4) // skip to name step
+    } else if (preset === 'full') {
+      setSetup(prev => ({ ...prev, teamCount: 8, playerPoolSize: 100, teamBudget: 1200 }))
+      setDirection(1)
+      setCurrentQuestion(4) // skip to name step
+    } else {
+      setDirection(1)
+      setCurrentQuestion(1)
+    }
+  }
+
   const handleNext = () => {
-    if (currentQuestion < QUESTIONS.length) {
+    if (currentQuestion < QUESTIONS.length - 1) {
+      setDirection(1)
       setCurrentQuestion(currentQuestion + 1)
     }
   }
 
   const handlePrevious = () => {
-    if (currentQuestion > 1) {
+    if (currentQuestion > 0) {
+      setDirection(-1)
       setCurrentQuestion(currentQuestion - 1)
     }
   }
 
   const canProceed = () => {
     switch (currentQuestion) {
+      case 0:
+        return true
       case 1:
         return setup.playerPoolSize >= 8 && setup.playerPoolSize <= 200
       case 2:
@@ -111,15 +149,18 @@ export default function CreateAuctionPage() {
 
   const handleCreateAuction = async () => {
     try {
-      // Create auction payload for the API
+      if (!leagueId) {
+        alert('No league selected. Please create an auction from a league dashboard.')
+        return
+      }
+
       const auctionPayload = {
         basicInfo: {
           name: setup.auctionName,
           description: `Cricket auction with ${setup.teamCount} teams and ${setup.playerPoolSize} players`,
           visibility: 'PRIVATE' as const,
-          scheduledAt: new Date(),
-          timezone: 'UTC'
         },
+        leagueId,
         config: {
           budgetPerTeam: setup.teamBudget,
           currencyName: 'Coins',
@@ -131,7 +172,6 @@ export default function CreateAuctionPage() {
           name: team.name,
           primaryColor: '#3B82F6',
           secondaryColor: '#1B2A4A',
-          logo: undefined
         })),
         tiers: [
           { name: 'Tier 0', basePrice: 120, color: '#EF4444', sortOrder: 0, minPerTeam: 0, maxPerTeam: 5 },
@@ -139,19 +179,13 @@ export default function CreateAuctionPage() {
           { name: 'Tier 2', basePrice: 60, color: '#3B82F6', sortOrder: 2, minPerTeam: 0, maxPerTeam: 25 },
           { name: 'Tier 3', basePrice: 30, color: '#10B981', sortOrder: 3, minPerTeam: 0, maxPerTeam: 14 }
         ],
-        branding: {
-          primaryColor: '#1B2A4A',
-          secondaryColor: '#3B82F6',
-          font: 'system'
-        }
+        primaryColor: '#1B2A4A',
+        secondaryColor: '#3B82F6'
       }
 
-      // Call the database API
       const response = await fetch('/api/auction/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(auctionPayload)
       })
 
@@ -163,7 +197,6 @@ export default function CreateAuctionPage() {
 
       const auctionId = result.id
 
-      // Create auction data structure for real-time system
       const auctionData = {
         id: auctionId,
         name: setup.auctionName,
@@ -173,7 +206,7 @@ export default function CreateAuctionPage() {
           originalCoins: setup.teamBudget,
           players: []
         })),
-        auctionQueue: [], // Will be populated with player names when players are added
+        auctionQueue: [],
         auctionIndex: 0,
         auctionStarted: false,
         soldPlayers: {},
@@ -183,13 +216,8 @@ export default function CreateAuctionPage() {
         lastUpdated: new Date().toISOString()
       }
 
-      // Save to localStorage for real-time system compatibility
       localStorage.setItem(`cricket-auction-${auctionId}`, JSON.stringify(auctionData))
-
-      // Set as active auction
       localStorage.setItem('cricket-auction-active', auctionId)
-
-      // Navigate to the created auction
       router.push(`/auction/${auctionId}`)
     } catch (error) {
       console.error('Failed to create auction:', error)
@@ -199,6 +227,8 @@ export default function CreateAuctionPage() {
 
   const renderQuestion = () => {
     switch (currentQuestion) {
+      case 0:
+        return <PresetSelectionStep onSelectPreset={handlePresetSelect} />
       case 1:
         return (
           <PlayerPoolSizeQuestion
@@ -239,79 +269,98 @@ export default function CreateAuctionPage() {
     }
   }
 
+  const slideVariants = {
+    enter: (dir: number) => ({ x: dir > 0 ? 50 : -50, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? -50 : 50, opacity: 0 }),
+  }
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Progress Bar */}
-      <div className="w-full bg-gray-800 h-2">
-        <div
-          className="bg-blue-500 h-full transition-all duration-300 ease-out"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+    <PageTransition>
+      <div className="min-h-screen bg-background text-foreground">
+        {/* Progress Bar */}
+        <Progress value={progress} className="rounded-none" />
 
-      {/* Header */}
-      <div className="flex justify-between items-center p-6">
-        <div className="flex items-center space-x-2 text-gray-400">
-          <span>Question {currentQuestion} of {QUESTIONS.length}</span>
+        {/* Header */}
+        <div className="flex justify-between items-center p-6">
+          <div className="flex items-center space-x-2 text-muted-foreground">
+            <span>{currentQuestion === 0 ? 'Getting started' : `Question ${currentQuestion} of ${QUESTIONS.length - 1}`}</span>
+          </div>
+          <div className="flex items-center space-x-2 text-muted-foreground">
+            <span className="tabular-nums">{Math.round(progress)}% complete</span>
+          </div>
         </div>
-        <div className="flex items-center space-x-2 text-gray-400">
-          <span>{Math.round(progress)}% complete</span>
-        </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-6">
-        <div className="border border-gray-700 rounded-3xl p-12 bg-gray-900">
-          {/* Question Icon */}
-          <div className="flex justify-center mb-8">
-            <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">
-              <Users className="h-8 w-8 text-blue-400" />
+        {/* Main Content */}
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="border border-border rounded-3xl p-12 bg-card">
+            {/* Question Icon */}
+            <div className="flex justify-center mb-8">
+              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+                <Users className="h-8 w-8 text-blue-400" />
+              </div>
+            </div>
+
+            {/* Question Title */}
+            <div className="text-center mb-12">
+              <h1 className="text-4xl font-bold mb-4">{currentQuestionData.title}</h1>
+              <p className="text-xl text-muted-foreground mb-2">{currentQuestionData.subtitle}</p>
+              {currentQuestionData.description && (
+                <p className="text-muted-foreground">{currentQuestionData.description}</p>
+              )}
+            </div>
+
+            {/* Question Content with animated transitions */}
+            <div className="mb-12">
+              <AnimatePresence mode="wait" custom={direction}>
+                <motion.div
+                  key={currentQuestion}
+                  custom={direction}
+                  variants={slideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.25, ease: 'easeInOut' }}
+                >
+                  {renderQuestion()}
+                </motion.div>
+              </AnimatePresence>
             </div>
           </div>
 
-          {/* Question Title */}
-          <div className="text-center mb-12">
-            <h1 className="text-4xl font-bold mb-4">{currentQuestionData.title}</h1>
-            <p className="text-xl text-gray-300 mb-2">{currentQuestionData.subtitle}</p>
-            <p className="text-gray-400">{currentQuestionData.description}</p>
-          </div>
+          {/* Navigation */}
+          {currentQuestion > 0 && (
+            <div className="flex justify-between items-center py-8">
+              <Button
+                variant="ghost"
+                onClick={handlePrevious}
+                disabled={currentQuestion === 0}
+              >
+                Previous
+              </Button>
 
-          {/* Question Content */}
-          <div className="mb-12">
-            {renderQuestion()}
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <div className="flex justify-between items-center py-8">
-          <Button
-            variant="ghost"
-            onClick={handlePrevious}
-            disabled={currentQuestion === 1}
-            className="text-gray-300 hover:text-white hover:bg-gray-800"
-          >
-            Previous
-          </Button>
-
-          {currentQuestion === QUESTIONS.length ? (
-            <Button
-              onClick={handleCreateAuction}
-              disabled={!canProceed()}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-8"
-            >
-              Create Auction
-            </Button>
-          ) : (
-            <Button
-              onClick={handleNext}
-              disabled={!canProceed()}
-              className="bg-gray-600 hover:bg-gray-500 text-white px-8"
-            >
-              Next Question
-            </Button>
+              {currentQuestion === QUESTIONS.length - 1 ? (
+                <Button
+                  onClick={handleCreateAuction}
+                  disabled={!canProceed()}
+                  className="px-8"
+                >
+                  Create Auction
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleNext}
+                  disabled={!canProceed()}
+                  variant="secondary"
+                  className="px-8"
+                >
+                  Next Question
+                </Button>
+              )}
+            </div>
           )}
         </div>
       </div>
-    </div>
+    </PageTransition>
   )
 }

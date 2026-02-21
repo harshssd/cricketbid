@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getUserFromRequest, getUserAuctionPermissions, validateAuctionPasscode, joinAuction } from '@/lib/auth'
+import { getUserFromRequest, getUserAuctionPermissions, joinAuction } from '@/lib/auth'
 
 interface RouteParams {
   params: Promise<{
@@ -9,7 +9,6 @@ interface RouteParams {
 }
 
 const joinAuctionSchema = z.object({
-  passcode: z.string().optional(),
   role: z.enum(['CAPTAIN', 'VIEWER']).default('VIEWER'),
   teamId: z.string().optional(),
 })
@@ -32,30 +31,14 @@ export async function POST(
     const body = await request.json()
     const validatedData = joinAuctionSchema.parse(body)
 
-    // Check current permissions
-    let permissions = await getUserAuctionPermissions(user.id, auctionId)
+    // Check current permissions (now checks league membership)
+    const permissions = await getUserAuctionPermissions(user.id, auctionId)
 
-    // If user can already join, proceed
     if (!permissions.canJoin) {
-      // Try with passcode if provided
-      if (validatedData.passcode) {
-        const isValidPasscode = await validateAuctionPasscode(auctionId, validatedData.passcode)
-        if (!isValidPasscode) {
-          return NextResponse.json(
-            { error: 'Invalid passcode' },
-            { status: 403 }
-          )
-        }
-        // Recheck permissions after passcode validation
-        permissions = await getUserAuctionPermissions(user.id, auctionId, validatedData.passcode)
-      }
-
-      if (!permissions.canJoin) {
-        return NextResponse.json(
-          { error: 'Access denied. Invalid passcode or insufficient permissions.' },
-          { status: 403 }
-        )
-      }
+      return NextResponse.json(
+        { error: 'Access denied. You must be a member of the league to join this auction.' },
+        { status: 403 }
+      )
     }
 
     // Join the auction
@@ -106,13 +89,10 @@ export async function GET(
   try {
     const { id: auctionId } = await params
     const user = await getUserFromRequest(request)
-    const { searchParams } = new URL(request.url)
-    const passcode = searchParams.get('passcode')
 
     const permissions = await getUserAuctionPermissions(
       user?.id || null,
-      auctionId,
-      passcode || undefined
+      auctionId
     )
 
     return NextResponse.json({

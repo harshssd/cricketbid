@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Input } from '@/components/ui/input'
+'use client'
+
+import { motion } from 'framer-motion'
 
 interface TeamCountQuestionProps {
   value: number
@@ -7,58 +8,37 @@ interface TeamCountQuestionProps {
 }
 
 export function TeamCountQuestion({ value, onChange }: TeamCountQuestionProps) {
-  const [inputValue, setInputValue] = useState(value.toString())
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value
-    setInputValue(newValue)
-
-    // Only update parent if it's a valid number
-    const numValue = parseInt(newValue)
-    if (!isNaN(numValue) && numValue > 0) {
-      onChange(numValue)
-    }
-  }
-
-  const handleInputClick = (e: React.MouseEvent<HTMLInputElement>) => {
-    e.currentTarget.select()
-  }
+  const min = 2
+  const max = 12
 
   return (
     <div className="max-w-md mx-auto">
       <div className="mb-6">
-        <label className="block text-lg font-medium text-gray-300 mb-4">
+        <label className="block text-lg font-medium text-muted-foreground mb-6">
           Number of teams
         </label>
 
-        <div className="relative">
-          <Input
-            type="number"
-            value={inputValue}
-            onChange={handleInputChange}
-            onClick={handleInputClick}
-            placeholder="e.g| 4"
-            min="2"
-            max="12"
-            className="w-full h-16 text-2xl text-center bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500 rounded-lg"
-          />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2">
-            <button
-              className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white"
-              onClick={() => {
-                const newVal = Math.max(2, value - 1)
-                setInputValue(newVal.toString())
-                onChange(newVal)
-              }}
+        <div className="flex flex-wrap justify-center gap-3">
+          {Array.from({ length: max - min + 1 }, (_, i) => i + min).map((n) => (
+            <motion.button
+              key={n}
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => onChange(n)}
+              className={`w-12 h-12 rounded-full text-lg font-bold transition-colors ${
+                n <= value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
             >
-              ▼
-            </button>
-          </div>
+              {n}
+            </motion.button>
+          ))}
         </div>
       </div>
 
-      <div className="text-center text-gray-400 text-sm">
-        Between 2 and 12 teams
+      <div className="text-center text-muted-foreground text-sm">
+        Between {min} and {max} teams
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 
 interface RouteParams {
   params: Promise<{
@@ -13,16 +13,16 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { id: auctionId } = await params
 
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      select: {
-        id: true,
-        status: true,
-        runtimeState: true,
-      }
-    })
+    const { data: auction, error } = await supabase
+      .from('auctions')
+      .select('id, status, runtime_state')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (error) throw error
 
     if (!auction) {
       return NextResponse.json({ error: 'Auction not found' }, { status: 404 })
@@ -30,7 +30,7 @@ export async function GET(
 
     return NextResponse.json({
       status: auction.status,
-      runtimeState: auction.runtimeState,
+      runtimeState: auction.runtime_state,
     })
   } catch (error) {
     console.error('Failed to load auction state:', error)
@@ -44,29 +44,29 @@ export async function PUT(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { id: auctionId } = await params
     const body = await request.json()
 
     const { runtimeState, status } = body
 
-    const updateData: any = {}
-    if (runtimeState !== undefined) updateData.runtimeState = runtimeState
+    const updateData: Record<string, any> = {}
+    if (runtimeState !== undefined) updateData.runtime_state = runtimeState
     if (status) updateData.status = status
 
-    const auction = await prisma.auction.update({
-      where: { id: auctionId },
-      data: updateData,
-      select: {
-        id: true,
-        status: true,
-        runtimeState: true,
-      }
-    })
+    const { data: auction, error } = await supabase
+      .from('auctions')
+      .update(updateData)
+      .eq('id', auctionId)
+      .select('id, status, runtime_state')
+      .single()
+
+    if (error) throw error
 
     return NextResponse.json({
       success: true,
       status: auction.status,
-      runtimeState: auction.runtimeState,
+      runtimeState: auction.runtime_state,
     })
   } catch (error) {
     console.error('Failed to save auction state:', error)

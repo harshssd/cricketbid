@@ -118,7 +118,7 @@ const ConfigSection = ({ title, icon, description, config, onConfigChange }: Con
         {icon}
         <div>
           <h3 className="text-lg font-semibold">{title}</h3>
-          <p className="text-sm text-gray-600">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
       </div>
 
@@ -144,7 +144,7 @@ const ConfigSection = ({ title, icon, description, config, onConfigChange }: Con
                   >
                     {option.label}
                   </Label>
-                  <p className="text-xs text-gray-600">{option.description}</p>
+                  <p className="text-xs text-muted-foreground">{option.description}</p>
                 </div>
               </div>
             ))}
@@ -290,7 +290,7 @@ export default function ViewConfigDialog({ auctionId, trigger }: ViewConfigDialo
             <TabsContent value="captain" className="mt-6">
               <ConfigSection
                 title="Captain View"
-                icon={<Users className="h-5 w-5 text-blue-600" />}
+                icon={<Users className="h-5 w-5 text-primary" />}
                 description="Team captain interface focused on bidding and team management"
                 config={captainConfig}
                 onConfigChange={(updates) => setCaptainConfig({ ...captainConfig, ...updates })}
@@ -300,7 +300,7 @@ export default function ViewConfigDialog({ auctionId, trigger }: ViewConfigDialo
             <TabsContent value="public" className="mt-6">
               <ConfigSection
                 title="Public/Spectator View"
-                icon={<Eye className="h-5 w-5 text-green-600" />}
+                icon={<Eye className="h-5 w-5 text-success" />}
                 description="Entertainment-focused view for audience and spectators"
                 config={publicConfig}
                 onConfigChange={(updates) => setPublicConfig({ ...publicConfig, ...updates })}

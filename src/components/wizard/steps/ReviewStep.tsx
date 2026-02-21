@@ -24,7 +24,7 @@ export function ReviewStep({ formState, onSubmit, isLoading, errors = {} }: Revi
         <Card>
           <CardContent className="p-8 text-center">
             <h3 className="text-lg font-semibold mb-4">Review Coming Soon</h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-muted-foreground mb-6">
               This step will show a complete summary of your auction configuration.
             </p>
 

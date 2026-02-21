@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { z } from 'zod'
 
@@ -33,22 +33,16 @@ export async function PUT(
       )
     }
 
-    // Verify user has permission to manage this team
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        teams: {
-          where: { id: teamId },
-          include: {
-            captain: true,
-            members: {
-              where: { userId: newCaptainId },
-              include: { user: true }
-            }
-          }
-        }
-      }
-    })
+    const supabase = await createClient()
+
+    // Verify auction exists
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id, owner_id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) throw auctionError
 
     if (!auction) {
       return NextResponse.json(
@@ -57,7 +51,16 @@ export async function PUT(
       )
     }
 
-    const team = auction.teams[0]
+    // Fetch the team with its captain
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .eq('id', teamId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (teamError) throw teamError
+
     if (!team) {
       return NextResponse.json(
         { error: 'Team not found' },
@@ -66,7 +69,8 @@ export async function PUT(
     }
 
     // Check permission (auction owner or current team captain)
-    const canManage = auction.ownerId === userId || team.captain?.id === userId
+    const captain = team.captain as unknown as { id: string; name: string; email: string } | null
+    const canManage = auction.owner_id === userId || captain?.id === userId
 
     if (!canManage) {
       return NextResponse.json(
@@ -76,46 +80,53 @@ export async function PUT(
     }
 
     // Verify new captain exists in team members
-    if (team.members.length === 0) {
+    const { data: newCaptainMember, error: memberError } = await supabase
+      .from('team_members')
+      .select('*, user:users!user_id(id, name, email)')
+      .eq('team_id', teamId)
+      .eq('user_id', newCaptainId)
+      .maybeSingle()
+
+    if (memberError) throw memberError
+
+    if (!newCaptainMember) {
       return NextResponse.json(
         { error: 'New captain must be an existing team member' },
         { status: 400 }
       )
     }
 
-    const newCaptainMember = team.members[0]
-    const newCaptainUser = newCaptainMember.user
+    const newCaptainUser = newCaptainMember.user as unknown as { id: string; name: string; email: string }
 
     // Update team captain
-    const updatedTeam = await prisma.team.update({
-      where: { id: teamId },
-      data: {
-        captainId: newCaptainId
-      },
-      include: {
-        captain: true
-      }
-    })
+    const { data: updatedTeam, error: updateError } = await supabase
+      .from('teams')
+      .update({ captain_id: newCaptainId })
+      .eq('id', teamId)
+      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .single()
+
+    if (updateError) throw updateError
 
     // Convert the old captain to a team member if they weren't already
-    if (team.captain && team.captain.id !== newCaptainId) {
-      const existingMember = await prisma.teamMember.findUnique({
-        where: {
-          teamId_userId: {
-            teamId,
-            userId: team.captain.id
-          }
-        }
-      })
+    if (captain && captain.id !== newCaptainId) {
+      const { data: existingMember } = await supabase
+        .from('team_members')
+        .select('*')
+        .eq('team_id', teamId)
+        .eq('user_id', captain.id)
+        .maybeSingle()
 
       if (!existingMember) {
-        await prisma.teamMember.create({
-          data: {
-            teamId,
-            userId: team.captain.id,
-            role: 'VICE_CAPTAIN'
-          }
-        })
+        const { error: createError } = await supabase
+          .from('team_members')
+          .insert({
+            team_id: teamId,
+            user_id: captain.id,
+            role: 'MEMBER'
+          })
+
+        if (createError) throw createError
       }
     }
 
@@ -130,7 +141,7 @@ export async function PUT(
       team: {
         id: updatedTeam.id,
         name: updatedTeam.name,
-        captainId: updatedTeam.captainId
+        captainId: updatedTeam.captain_id
       }
     })
 

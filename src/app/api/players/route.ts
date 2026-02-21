@@ -1,43 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 
 // Schema for searching players
 const searchPlayersSchema = z.object({
   searchQuery: z.string().optional(),
   auctionId: z.string().optional(),
-  isLinked: z.boolean().optional(),
-  linkingMethod: z.enum(['EMAIL_MATCH', 'MANUAL_LINK', 'USER_CLAIM', 'INVITATION']).optional(),
+  leagueId: z.string().optional(),
   playingRole: z.enum(['BATSMAN', 'BOWLER', 'ALL_ROUNDER', 'WICKETKEEPER']).optional(),
   status: z.enum(['AVAILABLE', 'SOLD', 'UNSOLD']).optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
-  sortBy: z.enum(['name', 'linkedAt', 'createdAt']).default('name'),
+  sortBy: z.enum(['name', 'createdAt']).default('name'),
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
-})
-
-// Schema for creating a player (not auction-specific)
-const createPlayerSchema = z.object({
-  name: z.string().min(1, 'Player name is required'),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  image: z.string().url().optional(),
-  playingRole: z.enum(['BATSMAN', 'BOWLER', 'ALL_ROUNDER', 'WICKETKEEPER']),
-  battingStyle: z.string().optional(),
-  bowlingStyle: z.string().optional(),
-  customTags: z.string().optional(),
-  userId: z.string().optional(), // Link to user during creation
 })
 
 // Get players with search and filtering
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient()
+
     const { searchParams } = new URL(request.url)
     const {
       searchQuery,
       auctionId,
-      isLinked,
-      linkingMethod,
+      leagueId,
       playingRole,
       status,
       page,
@@ -47,8 +34,7 @@ export async function GET(request: NextRequest) {
     } = searchPlayersSchema.parse({
       searchQuery: searchParams.get('searchQuery'),
       auctionId: searchParams.get('auctionId'),
-      isLinked: searchParams.get('isLinked') === 'true' ? true : searchParams.get('isLinked') === 'false' ? false : undefined,
-      linkingMethod: searchParams.get('linkingMethod'),
+      leagueId: searchParams.get('leagueId'),
       playingRole: searchParams.get('playingRole'),
       status: searchParams.get('status'),
       page: searchParams.get('page'),
@@ -57,92 +43,88 @@ export async function GET(request: NextRequest) {
       sortOrder: searchParams.get('sortOrder'),
     })
 
-    // Build where clause
-    let whereClause: any = {}
-
-    if (auctionId) {
-      whereClause.auctionId = auctionId
-    }
-
-    if (typeof isLinked === 'boolean') {
-      whereClause.isLinked = isLinked
-    }
-
-    if (linkingMethod) {
-      whereClause.linkingMethod = linkingMethod
-    }
-
-    if (playingRole) {
-      whereClause.playingRole = playingRole
-    }
-
-    if (status) {
-      whereClause.status = status
-    }
-
-    if (searchQuery) {
-      whereClause.OR = [
-        { name: { contains: searchQuery, mode: 'insensitive' } },
-        { email: { contains: searchQuery, mode: 'insensitive' } },
-        { customTags: { contains: searchQuery, mode: 'insensitive' } },
-      ]
-    }
-
-    // Build order by
-    let orderBy: any = {}
-    if (sortBy === 'linkedAt') {
-      orderBy.linkedAt = sortOrder
-    } else if (sortBy === 'createdAt') {
-      orderBy.createdAt = sortOrder
-    } else {
-      orderBy.name = sortOrder
-    }
-
     // Calculate pagination
     const skip = (page - 1) * limit
 
-    // Get players and total count
-    const [players, totalCount] = await Promise.all([
-      prisma.player.findMany({
-        where: whereClause,
-        include: {
-          linkedUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true
-            }
-          },
-          auction: {
-            select: {
-              id: true,
-              name: true,
-              status: true
-            }
-          },
-          tier: {
-            select: {
-              id: true,
-              name: true,
-              basePrice: true,
-              color: true
-            }
-          },
-          assignedTeam: {
-            select: {
-              id: true,
-              name: true,
-              primaryColor: true
-            }
-          }
-        },
-        orderBy: orderBy,
-        skip: skip,
-        take: limit
-      }),
-      prisma.player.count({ where: whereClause })
+    // Build query with relations
+    let query = supabase
+      .from('players')
+      .select(`
+        *,
+        linked_user:users!user_id(id, name, email, image),
+        auction:auctions!auction_id(id, name, status),
+        tier:tiers!tier_id(id, name, base_price, color),
+        assigned_team:teams!assigned_team_id(id, name, primary_color)
+      `)
+
+    // Apply filters
+    if (auctionId) {
+      query = query.eq('auction_id', auctionId)
+    }
+
+    if (leagueId) {
+      query = query.eq('league_id', leagueId)
+    }
+
+    if (playingRole) {
+      query = query.eq('playing_role', playingRole)
+    }
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    if (searchQuery) {
+      query = query.or(`name.ilike.%${searchQuery}%,custom_tags.ilike.%${searchQuery}%`)
+    }
+
+    // Apply sorting
+    query = query.order(sortBy === 'createdAt' ? 'created_at' : 'name', { ascending: sortOrder === 'asc' })
+
+    // Apply pagination
+    query = query.range(skip, skip + limit - 1)
+
+    // Build count query
+    let countQuery = supabase
+      .from('players')
+      .select('*', { count: 'exact', head: true })
+
+    if (auctionId) {
+      countQuery = countQuery.eq('auction_id', auctionId)
+    }
+
+    if (leagueId) {
+      countQuery = countQuery.eq('league_id', leagueId)
+    }
+
+    if (playingRole) {
+      countQuery = countQuery.eq('playing_role', playingRole)
+    }
+
+    if (status) {
+      countQuery = countQuery.eq('status', status)
+    }
+
+    if (searchQuery) {
+      countQuery = countQuery.or(`name.ilike.%${searchQuery}%,custom_tags.ilike.%${searchQuery}%`)
+    }
+
+    // Execute both queries in parallel
+    const [playersResult, countResult] = await Promise.all([
+      query,
+      countQuery
     ])
+
+    if (playersResult.error) {
+      throw playersResult.error
+    }
+
+    if (countResult.error) {
+      throw countResult.error
+    }
+
+    const players = playersResult.data
+    const totalCount = countResult.count ?? 0
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalCount / limit)
@@ -163,8 +145,7 @@ export async function GET(request: NextRequest) {
       filters: {
         searchQuery,
         auctionId,
-        isLinked,
-        linkingMethod,
+        leagueId,
         playingRole,
         status
       }
@@ -186,52 +167,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Create a player (for global player registry - future enhancement)
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const playerData = createPlayerSchema.parse(body)
-
-    // Check if a user with the same email already exists (if email provided)
-    if (playerData.email) {
-      const existingUserWithEmail = await prisma.user.findUnique({
-        where: { email: playerData.email }
-      })
-
-      // If email matches an existing user, suggest linking
-      if (existingUserWithEmail && !playerData.userId) {
-        return NextResponse.json({
-          error: 'Email matches existing user',
-          suggestion: 'Consider linking this player to the existing user',
-          existingUser: {
-            id: existingUserWithEmail.id,
-            name: existingUserWithEmail.name,
-            email: existingUserWithEmail.email
-          }
-        }, { status: 409 })
-      }
-    }
-
-    // For now, we'll return a message that global player creation is not implemented
-    // This would be implemented when we add a global player registry
-    return NextResponse.json({
-      error: 'Global player creation not yet implemented',
-      message: 'Players are currently created within auction contexts only. Use the auction player import API instead.',
-      suggestion: 'Use /api/auctions/{auctionId}/players/import to add players to specific auctions'
-    }, { status: 501 })
-
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({
-        error: 'Validation error',
-        details: error.issues
-      }, { status: 400 })
-    }
-
-    console.error('Failed to create player:', error)
-    return NextResponse.json({
-      error: 'Failed to create player',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
-  }
+// Players are now created through the league players API
+export async function POST() {
+  return NextResponse.json({
+    error: 'Use the league players API to create players',
+    message: 'Players are now managed at the league level. Use /api/leagues/{leagueId}/players instead.',
+  }, { status: 301 })
 }

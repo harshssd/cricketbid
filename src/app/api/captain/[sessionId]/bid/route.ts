@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { verifyTeamAdminAccess, getAuthenticatedUser } from '@/lib/auth'
 
@@ -18,6 +18,7 @@ export async function POST(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
     const { sessionId } = await params
     const body = await request.json()
 
@@ -58,32 +59,30 @@ export async function POST(
       )
     }
 
-    // Get team and captain info
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        captain: { select: { id: true } },
-        auction: {
-          select: { id: true, status: true, budgetPerTeam: true }
-        }
-      }
-    })
+    // Get team and auction info
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, budget_remaining, captain_id, auction_id, auction:auctions!auction_id(id, status, budget_per_team)')
+      .eq('id', teamId)
+      .maybeSingle()
 
-    if (!team) {
+    if (teamError || !team) {
       return NextResponse.json(
         { error: 'Team not found' },
         { status: 404 }
       )
     }
 
-    if (team.auction?.id !== auctionId) {
+    const teamAuction = team.auction as unknown as { id: string; status: string; budget_per_team: number } | null
+
+    if (teamAuction?.id !== auctionId) {
       return NextResponse.json(
         { error: 'Team does not belong to this auction' },
         { status: 400 }
       )
     }
 
-    if (team.auction.status !== 'LIVE') {
+    if (teamAuction.status !== 'LIVE') {
       return NextResponse.json(
         { error: 'Auction is not live' },
         { status: 400 }
@@ -91,33 +90,29 @@ export async function POST(
     }
 
     // Verify round is active
-    const round = await prisma.round.findFirst({
-      where: {
-        id: roundId,
-        auctionId: auctionId,
-        status: 'OPEN'
-      },
-      include: {
-        tier: {
-          select: { basePrice: true }
-        }
-      }
-    })
+    const { data: round, error: roundError } = await supabase
+      .from('rounds')
+      .select('id, tier_id, status, closed_at, tier:tiers!tier_id(base_price)')
+      .eq('id', roundId)
+      .eq('auction_id', auctionId)
+      .eq('status', 'OPEN')
+      .maybeSingle()
 
-    if (!round) {
+    if (roundError || !round) {
       return NextResponse.json(
         { error: 'Round not found or not active' },
         { status: 404 }
       )
     }
 
-    // Get player information separately
-    const player = await prisma.player.findUnique({
-      where: { id: playerId },
-      select: { id: true, name: true, tierId: true }
-    })
+    // Get player information
+    const { data: player, error: playerError } = await supabase
+      .from('players')
+      .select('id, name, tier_id')
+      .eq('id', playerId)
+      .maybeSingle()
 
-    if (!player) {
+    if (playerError || !player) {
       return NextResponse.json(
         { error: 'Player not found' },
         { status: 404 }
@@ -125,7 +120,7 @@ export async function POST(
     }
 
     // Verify player belongs to the current round's tier
-    if (player.tierId !== round.tierId) {
+    if (player.tier_id !== round.tier_id) {
       return NextResponse.json(
         { error: 'Player does not belong to current round tier' },
         { status: 400 }
@@ -133,15 +128,17 @@ export async function POST(
     }
 
     // Check if bid meets minimum requirements
-    if (amount < round.tier.basePrice) {
+    const roundTier = round.tier as unknown as { base_price: number } | null
+    const basePrice = roundTier?.base_price ?? 0
+    if (amount < basePrice) {
       return NextResponse.json(
-        { error: `Minimum bid is ${round.tier.basePrice}` },
+        { error: `Minimum bid is ${basePrice}` },
         { status: 400 }
       )
     }
 
     // Check if team has sufficient budget
-    const remainingBudget = team.budgetRemaining ?? team.auction.budgetPerTeam
+    const remainingBudget = team.budget_remaining ?? teamAuction.budget_per_team
     if (amount > remainingBudget) {
       return NextResponse.json(
         { error: 'Insufficient budget' },
@@ -150,7 +147,7 @@ export async function POST(
     }
 
     // Check if round is still open (time-based)
-    if (round.closedAt && new Date() > round.closedAt) {
+    if (round.closed_at && new Date() > new Date(round.closed_at)) {
       return NextResponse.json(
         { error: 'Bidding time has expired for this round' },
         { status: 400 }
@@ -159,41 +156,32 @@ export async function POST(
 
     // Use the authenticated user as the captain ID for the bid
     // This allows multiple authorized users to place bids for the team
-    const bid = await prisma.bid.upsert({
-      where: {
-        roundId_captainId_playerId: {
-          roundId: roundId,
-          captainId: userId,
-          playerId: playerId
-        }
-      },
-      update: {
-        amount: amount,
-        submittedAt: new Date(),
-        rejectionReason: null
-      },
-      create: {
-        roundId: roundId,
-        captainId: userId,
-        playerId: playerId,
-        amount: amount
-      },
-      include: {
-        captain: {
-          select: { id: true, name: true, email: true }
+    const { data: bid, error: bidError } = await supabase
+      .from('bids')
+      .upsert(
+        {
+          round_id: roundId,
+          captain_id: userId,
+          player_id: playerId,
+          amount: amount,
+          submitted_at: new Date().toISOString(),
+          rejection_reason: null,
         },
-        player: {
-          select: { id: true, name: true }
-        }
-      }
-    })
+        { onConflict: 'round_id, captain_id, player_id' }
+      )
+      .select('*, captain:users!captain_id(id, name, email), player:players!player_id(id, name)')
+      .single()
+
+    if (bidError) {
+      throw bidError
+    }
 
     return NextResponse.json({
       success: true,
       bid: {
         id: bid.id,
         amount: bid.amount,
-        submittedAt: bid.submittedAt,
+        submittedAt: bid.submitted_at,
         captain: bid.captain,
         player: bid.player
       },

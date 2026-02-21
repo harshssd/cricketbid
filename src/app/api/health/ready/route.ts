@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 
@@ -8,9 +7,11 @@ export async function GET() {
   const checks: Array<{ name: string; status: 'pass' | 'fail'; error?: string }> = []
 
   try {
-    // Check database connectivity
+    // Check database connectivity via Supabase
     try {
-      await prisma.$queryRaw`SELECT 1`
+      const supabase = await createClient()
+      const { error } = await supabase.from('users').select('id', { count: 'exact', head: true })
+      if (error) throw error
       checks.push({ name: 'database', status: 'pass' })
     } catch (error) {
       checks.push({
@@ -35,7 +36,6 @@ export async function GET() {
 
     // Check environment variables
     const requiredEnvVars = [
-      'DATABASE_URL',
       'NEXT_PUBLIC_SUPABASE_URL',
       'NEXT_PUBLIC_SUPABASE_ANON_KEY'
     ]

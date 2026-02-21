@@ -118,11 +118,11 @@ export function CaptainAssignmentDialog({
   const getTeamTypeBadge = () => {
     switch (team.type) {
       case 'AUCTION':
-        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700">Auction Team</Badge>
+        return <Badge variant="outline" className="bg-warning/10 text-warning">Auction Team</Badge>
       case 'CLUB':
-        return <Badge variant="outline" className="bg-green-50 text-green-700">Club Team</Badge>
+        return <Badge variant="outline" className="bg-success/10 text-success">Club Team</Badge>
       case 'LEAGUE':
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700">League Team</Badge>
+        return <Badge variant="outline" className="bg-info/10 text-info-foreground">League Team</Badge>
     }
   }
 

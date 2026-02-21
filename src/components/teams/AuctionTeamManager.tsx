@@ -442,12 +442,12 @@ export function AuctionTeamManager({
 
       {/* Budget Configuration */}
       {isEditable && (
-        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+        <Card className="bg-info/10 border-info/30">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-blue-900 dark:text-blue-100">Budget per Team</h4>
-                <p className="text-sm text-blue-700 dark:text-blue-300">
+                <h4 className="font-medium text-info-foreground">Budget per Team</h4>
+                <p className="text-sm text-info-foreground">
                   Set how many coins each team/captain starts with
                 </p>
               </div>
@@ -463,13 +463,13 @@ export function AuctionTeamManager({
                     className="w-24 h-8 text-center"
                     disabled={updatingBudget}
                   />
-                  <span className="text-sm text-blue-700 dark:text-blue-300">coins</span>
+                  <span className="text-sm text-info-foreground">coins</span>
                 </div>
                 <Button
                   size="sm"
                   onClick={() => handleBudgetUpdate(budgetPerTeam)}
                   disabled={updatingBudget || budgetPerTeam < 100 || budgetPerTeam > 10000}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   {updatingBudget ? 'Saving...' : 'Update'}
                 </Button>
@@ -510,19 +510,19 @@ export function AuctionTeamManager({
 
       {/* Captain URLs Section */}
       {teams.length > 0 && (
-        <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+        <Card className="bg-success/10 border-success/30">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h4 className="font-medium text-green-900 dark:text-green-100">Team Bidding Links</h4>
-                <p className="text-sm text-green-700 dark:text-green-300">
+                <h4 className="font-medium text-success-foreground">Team Bidding Links</h4>
+                <p className="text-sm text-success-foreground">
                   Share these unique URLs with team administrators (captains and vice-captains) to access the bidding interface
                 </p>
               </div>
             </div>
             <div className="space-y-3">
               {teams.map((team) => (
-                <div key={team.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border">
+                <div key={team.id} className="flex items-center justify-between p-3 bg-card rounded-lg border">
                   <div className="flex items-center gap-3">
                     <div
                       className="w-3 h-3 rounded-full"
@@ -536,7 +536,7 @@ export function AuctionTeamManager({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <code className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono max-w-xs truncate">
+                    <code className="text-xs bg-muted px-2 py-1 rounded font-mono max-w-xs truncate">
                       {getCaptainUrl(team)}
                     </code>
                     <Button
@@ -559,13 +559,13 @@ export function AuctionTeamManager({
                 </div>
               ))}
             </div>
-            <div className="mt-4 p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <p className="text-xs text-green-800 dark:text-green-200">
+            <div className="mt-4 p-3 bg-success/10 rounded-lg">
+              <p className="text-xs text-success-foreground">
                 <strong>Multi-Admin Access:</strong> Multiple users can access each team's bidding interface. The system checks for:
                 1) Team captain (assigned in team settings), 2) Team members with Captain/Vice-Captain roles,
                 3) Users with auction admin privileges (Owner/Moderator roles).
               </p>
-              <p className="text-xs text-green-800 dark:text-green-200 mt-1">
+              <p className="text-xs text-success-foreground mt-1">
                 <strong>Setup:</strong> Use the "Admins" button on each team to configure who can access the bidding interface.
                 All authorized users will be redirected to login if not authenticated.
               </p>
@@ -692,7 +692,7 @@ export function AuctionTeamManager({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-auto"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
                     onClick={() => setDeleteTeam(team)}
                   >
                     <Trash2 className="w-3 h-3" />
@@ -748,7 +748,7 @@ export function AuctionTeamManager({
       <Dialog open={!!deleteTeam} onOpenChange={(open) => { if (!open) setDeleteTeam(null) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
               Delete Team
             </DialogTitle>
@@ -799,7 +799,7 @@ export function AuctionTeamManager({
                   {playerAssignTeam.players.map((player) => (
                     <div
                       key={player.id}
-                      className="flex items-center justify-between p-2 rounded border bg-green-50 border-green-200"
+                      className="flex items-center justify-between p-2 rounded border bg-success/10 border-success/30"
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{player.name}</span>
@@ -819,7 +819,7 @@ export function AuctionTeamManager({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => handleRemovePlayer(player.id)}
                       >
                         <X className="w-4 h-4" />
@@ -850,7 +850,7 @@ export function AuctionTeamManager({
                   {availablePlayers.map((player) => (
                     <div
                       key={player.id}
-                      className="flex items-center justify-between p-2 rounded border hover:bg-gray-50"
+                      className="flex items-center justify-between p-2 rounded border hover:bg-muted"
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-sm">{player.name}</span>

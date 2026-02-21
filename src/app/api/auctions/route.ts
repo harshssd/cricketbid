@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient()
+
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const visibility = searchParams.get('visibility')
@@ -10,66 +12,72 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '12')
     const skip = (page - 1) * limit
 
-    // Build where clause
-    const where: any = {}
+    // Build the query with embedded relations for owner, league, and IDs for counting
+    let query = supabase
+      .from('auctions')
+      .select(`
+        *,
+        owner:users!owner_id(id, name, email, image),
+        league:leagues!league_id(id, name, logo),
+        teams(id),
+        players(id),
+        auction_participations(id)
+      `)
 
+    // Apply filters
     if (status && status !== 'all') {
-      where.status = status.toUpperCase()
+      query = query.eq('status', status.toUpperCase())
     }
 
     if (visibility && visibility !== 'all') {
-      where.visibility = visibility.toUpperCase()
+      query = query.eq('visibility', visibility.toUpperCase())
     }
 
-    // Fetch auctions with counts
-    const auctions = await prisma.auction.findMany({
-      where,
-      include: {
-        owner: {
-          select: { id: true, name: true, email: true, image: true }
-        },
-        league: {
-          select: { id: true, name: true, code: true, logo: true }
-        },
-        _count: {
-          select: {
-            teams: true,
-            players: true,
-            participations: true,
-          }
-        }
-      },
-      orderBy: [
-        { status: 'asc' },
-        { scheduledAt: 'asc' }
-      ],
-      skip,
-      take: limit
-    })
+    // Apply ordering and pagination
+    query = query
+      .order('status', { ascending: true })
+      .order('created_at', { ascending: true })
+      .range(skip, skip + limit - 1)
 
-    // Get total count for pagination
-    const totalCount = await prisma.auction.count({ where })
+    const { data: auctions, error } = await query
 
-    const transformedAuctions = auctions.map(auction => ({
+    if (error) throw error
+
+    // Build count query with same filters
+    let countQuery = supabase
+      .from('auctions')
+      .select('*', { count: 'exact', head: true })
+
+    if (status && status !== 'all') {
+      countQuery = countQuery.eq('status', status.toUpperCase())
+    }
+
+    if (visibility && visibility !== 'all') {
+      countQuery = countQuery.eq('visibility', visibility.toUpperCase())
+    }
+
+    const { count: totalCount, error: countError } = await countQuery
+
+    if (countError) throw countError
+
+    const total = totalCount ?? 0
+
+    const transformedAuctions = (auctions ?? []).map((auction: any) => ({
       id: auction.id,
       name: auction.name,
       description: auction.description,
-      scheduledAt: auction.scheduledAt,
-      timezone: auction.timezone,
       status: auction.status,
       visibility: auction.visibility,
-      primaryColor: auction.primaryColor,
-      secondaryColor: auction.secondaryColor,
+      primaryColor: auction.primary_color,
+      secondaryColor: auction.secondary_color,
       logo: auction.logo,
-      banner: auction.banner,
-      tagline: auction.tagline,
-      budgetPerTeam: auction.budgetPerTeam,
-      currencyName: auction.currencyName,
-      currencyIcon: auction.currencyIcon,
-      squadSize: auction.squadSize,
-      teamCount: auction._count.teams,
-      playerCount: auction._count.players,
-      participantCount: auction._count.participations,
+      budgetPerTeam: auction.budget_per_team,
+      currencyName: auction.currency_name,
+      currencyIcon: auction.currency_icon,
+      squadSize: auction.squad_size,
+      teamCount: auction.teams?.length ?? 0,
+      playerCount: auction.players?.length ?? 0,
+      participantCount: auction.auction_participations?.length ?? 0,
       owner: auction.owner,
       league: auction.league,
     }))
@@ -79,9 +87,9 @@ export async function GET(request: NextRequest) {
       pagination: {
         page,
         limit,
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page < Math.ceil(totalCount / limit),
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1
       }
     })

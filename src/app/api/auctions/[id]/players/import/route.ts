@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 
 interface RouteParams {
   params: Promise<{
@@ -17,7 +17,6 @@ const playerSchema = z.object({
   customTags: z.string().optional(),
   tierId: z.string().min(1, 'Tier is required'),
   email: z.string().email().optional(),
-  phone: z.string().optional(),
   userId: z.string().optional(),
 })
 
@@ -32,19 +31,25 @@ export async function POST(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
+
     const { id: auctionId } = await params
     const body = await request.json()
     const validatedData = importPlayersSchema.parse(body)
 
     // Check if auction exists and is in DRAFT status
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        tiers: {
-          select: { id: true, name: true }
-        }
-      }
-    })
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select(`
+        *,
+        tiers:tiers!auction_id(id, name)
+      `)
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) {
+      throw auctionError
+    }
 
     if (!auction) {
       return NextResponse.json(
@@ -61,7 +66,7 @@ export async function POST(
     }
 
     // Validate all tier IDs exist
-    const tierIds = new Set(auction.tiers.map(t => t.id))
+    const tierIds = new Set(auction.tiers.map((t: any) => t.id))
     const invalidTierIds = validatedData.players
       .map(p => p.tierId)
       .filter(tierId => !tierIds.has(tierId))
@@ -78,114 +83,113 @@ export async function POST(
 
     // If overwrite is true, delete existing players
     if (validatedData.overwrite) {
-      await prisma.player.deleteMany({
-        where: { auctionId: auctionId }
-      })
+      const { error: deleteError } = await supabase
+        .from('players')
+        .delete()
+        .eq('auction_id', auctionId)
+
+      if (deleteError) {
+        throw deleteError
+      }
     }
 
-    // Create players in batches with user linking
-    const createdPlayers = await prisma.$transaction(async (tx) => {
-      const players = []
-      const linkingResults = {
-        linked: 0,
-        unlinked: 0,
-        errors: [] as string[]
-      }
+    // Create players sequentially with user linking
+    const players = []
+    const linkingResults = {
+      linked: 0,
+      unlinked: 0,
+      errors: [] as string[]
+    }
 
-      for (const playerData of validatedData.players) {
-        let linkingInfo = {
-          userId: null as string | null,
-          isLinked: false,
-          linkedAt: null as Date | null,
-          linkingMethod: null as any,
-          linkVerified: false
+    for (const playerData of validatedData.players) {
+      let resolvedUserId: string | null = null
+
+      if (playerData.userId) {
+        const { data: user } = await supabase
+          .from('users')
+          .select('id, email')
+          .eq('id', playerData.userId)
+          .maybeSingle()
+
+        if (user) {
+          resolvedUserId = playerData.userId
+          linkingResults.linked++
+        } else {
+          linkingResults.errors.push(`User not found for ID: ${playerData.userId} (player: ${playerData.name})`)
         }
+      } else if (validatedData.autoLinkUsers && playerData.email) {
+        const { data: user } = await supabase
+          .from('users')
+          .select('id, email')
+          .eq('email', playerData.email)
+          .maybeSingle()
 
-        if (playerData.userId) {
-          const user = await tx.user.findUnique({
-            where: { id: playerData.userId },
-            select: { id: true, email: true }
-          })
-
-          if (user) {
-            linkingInfo = {
-              userId: playerData.userId,
-              isLinked: true,
-              linkedAt: new Date(),
-              linkingMethod: 'MANUAL_LINK',
-              linkVerified: true
-            }
-            linkingResults.linked++
-          } else {
-            linkingResults.errors.push(`User not found for ID: ${playerData.userId} (player: ${playerData.name})`)
-          }
-        } else if (validatedData.autoLinkUsers && playerData.email) {
-          const user = await tx.user.findUnique({
-            where: { email: playerData.email },
-            select: { id: true, email: true }
-          })
-
-          if (user) {
-            linkingInfo = {
-              userId: user.id,
-              isLinked: true,
-              linkedAt: new Date(),
-              linkingMethod: 'EMAIL_MATCH',
-              linkVerified: true
-            }
-            linkingResults.linked++
-          } else {
-            linkingResults.unlinked++
-          }
+        if (user) {
+          resolvedUserId = user.id
+          linkingResults.linked++
         } else {
           linkingResults.unlinked++
         }
-
-        const player = await tx.player.create({
-          data: {
-            ...playerData,
-            auctionId: auctionId,
-            status: 'AVAILABLE',
-            ...linkingInfo
-          },
-          include: {
-            tier: {
-              select: {
-                id: true,
-                name: true,
-                basePrice: true,
-                color: true,
-              }
-            },
-            linkedUser: linkingInfo.isLinked ? {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true
-              }
-            } : false
-          }
-        })
-        players.push(player)
+      } else {
+        linkingResults.unlinked++
       }
-      return { players, linkingResults }
-    })
 
-    const playerCount = await prisma.player.count({
-      where: { auctionId: auctionId }
-    })
+      // Remove email from playerData before creating (not a Player field)
+      const { email: _email, ...playerCreateData } = playerData
+
+      // Map camelCase fields to snake_case for insert
+      const insertData: any = {
+        name: playerCreateData.name,
+        playing_role: playerCreateData.playingRole,
+        tier_id: playerCreateData.tierId,
+        auction_id: auctionId,
+        league_id: auction.league_id,
+        status: 'AVAILABLE',
+        user_id: resolvedUserId,
+      }
+
+      if (playerCreateData.image) insertData.image = playerCreateData.image
+      if (playerCreateData.battingStyle) insertData.batting_style = playerCreateData.battingStyle
+      if (playerCreateData.bowlingStyle) insertData.bowling_style = playerCreateData.bowlingStyle
+      if (playerCreateData.customTags) insertData.custom_tags = playerCreateData.customTags
+
+      const { data: player, error: createError } = await supabase
+        .from('players')
+        .insert(insertData)
+        .select(`
+          *,
+          tier:tiers!tier_id(id, name, base_price, color),
+          linked_user:users!user_id(id, name, email, image)
+        `)
+        .single()
+
+      if (createError) {
+        throw createError
+      }
+
+      players.push(player)
+    }
+
+    // Get total player count for this auction
+    const { count: playerCount, error: countError } = await supabase
+      .from('players')
+      .select('*', { count: 'exact', head: true })
+      .eq('auction_id', auctionId)
+
+    if (countError) {
+      throw countError
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Successfully imported ${createdPlayers.players.length} players`,
-      players: createdPlayers.players,
-      totalPlayers: playerCount,
+      message: `Successfully imported ${players.length} players`,
+      players,
+      totalPlayers: playerCount ?? 0,
       overwritten: validatedData.overwrite,
       linking: {
         enabled: validatedData.autoLinkUsers,
-        results: createdPlayers.linkingResults,
-        summary: `${createdPlayers.linkingResults.linked} linked, ${createdPlayers.linkingResults.unlinked} unlinked${createdPlayers.linkingResults.errors.length > 0 ? `, ${createdPlayers.linkingResults.errors.length} errors` : ''}`
+        results: linkingResults,
+        summary: `${linkingResults.linked} linked, ${linkingResults.unlinked} unlinked${linkingResults.errors.length > 0 ? `, ${linkingResults.errors.length} errors` : ''}`
       }
     })
 
@@ -214,50 +218,33 @@ export async function GET(
   { params }: RouteParams
 ) {
   try {
+    const supabase = await createClient()
+
     const { id: auctionId } = await params
 
-    const players = await prisma.player.findMany({
-      where: { auctionId: auctionId },
-      include: {
-        tier: {
-          select: {
-            id: true,
-            name: true,
-            basePrice: true,
-            color: true,
-          }
-        },
-        assignedTeam: {
-          select: {
-            id: true,
-            name: true,
-            primaryColor: true,
-          }
-        },
-        linkedUser: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-          }
-        }
-      },
-      orderBy: [
-        { isLinked: 'desc' },
-        { status: 'asc' },
-        { name: 'asc' }
-      ]
-    })
+    const { data: players, error } = await supabase
+      .from('players')
+      .select(`
+        *,
+        tier:tiers!tier_id(id, name, base_price, color),
+        assigned_team:teams!assigned_team_id(id, name, primary_color),
+        linked_user:users!user_id(id, name, email, image)
+      `)
+      .eq('auction_id', auctionId)
+      .order('status', { ascending: true })
+      .order('name', { ascending: true })
+
+    if (error) {
+      throw error
+    }
 
     const playerStats = {
       total: players.length,
       available: players.filter(p => p.status === 'AVAILABLE').length,
       sold: players.filter(p => p.status === 'SOLD').length,
       unsold: players.filter(p => p.status === 'UNSOLD').length,
-      linked: players.filter(p => p.isLinked).length,
-      unlinked: players.filter(p => !p.isLinked).length,
-      verified: players.filter(p => p.linkVerified).length,
+      linked: players.filter(p => p.user_id != null).length,
+      unlinked: players.filter(p => p.user_id == null).length,
     }
 
     return NextResponse.json({

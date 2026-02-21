@@ -34,12 +34,12 @@ export function WizardStep({
       {(title || description) && (
         <div className="space-y-2">
           {title && (
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h3 className="text-lg font-semibold text-foreground">
               {title}
             </h3>
           )}
           {description && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-muted-foreground">
               {description}
             </p>
           )}
@@ -65,7 +65,7 @@ export function WizardStep({
       {hasWarnings && (
         <div className="space-y-2">
           {warnings.map((warning, index) => (
-            <Alert key={`warning-${index}`} className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-200">
+            <Alert key={`warning-${index}`} className="border-warning/30 bg-warning/10 text-warning-foreground">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{warning}</AlertDescription>
             </Alert>
@@ -76,7 +76,7 @@ export function WizardStep({
       {hasInfo && (
         <div className="space-y-2">
           {info.map((infoText, index) => (
-            <Alert key={`info-${index}`} className="border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800/50 dark:bg-blue-900/20 dark:text-blue-200">
+            <Alert key={`info-${index}`} className="border-info/30 bg-info/10 text-info-foreground">
               <Info className="h-4 w-4" />
               <AlertDescription>{infoText}</AlertDescription>
             </Alert>
@@ -111,12 +111,12 @@ export function FormSection({
   return (
     <div className={cn("space-y-4", className)}>
       <div className="space-y-1">
-        <h4 className="text-base font-medium text-gray-900 dark:text-white flex items-center">
+        <h4 className="text-base font-medium text-foreground flex items-center">
           {title}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-destructive ml-1">*</span>}
         </h4>
         {description && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             {description}
           </p>
         )}
@@ -146,8 +146,8 @@ export function ValidationStatus({
     <div className={cn(
       "flex items-center space-x-2 text-sm",
       {
-        "text-green-600 dark:text-green-400": isValid,
-        "text-red-600 dark:text-red-400": !isValid
+        "text-success": isValid,
+        "text-destructive": !isValid
       }
     )}>
       {showIcon && (

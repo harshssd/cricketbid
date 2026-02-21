@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 
 const createLeagueTeamSchema = z.object({
@@ -23,6 +23,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const supabase = await createClient()
     const { id: leagueId } = await params
     const body = await request.json()
 
@@ -30,48 +31,57 @@ export async function POST(
     const teamData = createLeagueTeamSchema.parse(body)
 
     // Check if league exists
-    const league = await prisma.league.findUnique({
-      where: { id: leagueId },
-      include: { _count: { select: { teams: true } } }
-    })
+    const { data: league, error: leagueError } = await supabase
+      .from('leagues')
+      .select('id')
+      .eq('id', leagueId)
+      .maybeSingle()
 
-    if (!league) {
+    if (leagueError || !league) {
       return NextResponse.json(
         { error: 'League not found' },
         { status: 404 }
       )
     }
 
-    // Check team limit
-    if (league.maxTeams && league._count.teams >= league.maxTeams) {
-      return NextResponse.json(
-        { error: `League is full. Maximum ${league.maxTeams} teams allowed.` },
-        { status: 400 }
-      )
-    }
-
     // Create the team
-    const team = await prisma.team.create({
-      data: {
+    const { data: team, error: createError } = await supabase
+      .from('teams')
+      .insert({
         name: teamData.name,
         description: teamData.description,
-        primaryColor: teamData.primaryColor || '#3B82F6',
-        secondaryColor: teamData.secondaryColor || '#1B2A4A',
+        primary_color: teamData.primaryColor || '#3B82F6',
+        secondary_color: teamData.secondaryColor || '#1B2A4A',
         logo: teamData.logo,
-        captainId: teamData.captainId,
-        maxMembers: teamData.maxMembers || 11,
-        isActive: true,
-        leagueId,
-      },
-      include: {
-        captain: { select: { id: true, name: true, email: true, image: true } },
-        _count: { select: { members: true } }
-      }
-    })
+        captain_id: teamData.captainId,
+        max_members: teamData.maxMembers || 11,
+        is_active: true,
+        league_id: leagueId,
+      })
+      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .single()
+
+    if (createError) {
+      throw createError
+    }
+
+    // Transform to match expected response shape
+    const transformedTeam = {
+      ...team,
+      primaryColor: team.primary_color,
+      secondaryColor: team.secondary_color,
+      captainId: team.captain_id,
+      maxMembers: team.max_members,
+      isActive: team.is_active,
+      leagueId: team.league_id,
+      createdAt: team.created_at,
+      _count: { members: team.members?.length ?? 0 },
+      members: undefined,
+    }
 
     return NextResponse.json({
       success: true,
-      team
+      team: transformedTeam
     }, { status: 201 })
 
   } catch (error) {
@@ -97,32 +107,43 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const supabase = await createClient()
     const { id: leagueId } = await params
     const { searchParams } = new URL(request.url)
     const includeInactive = searchParams.get('includeInactive') === 'true'
 
-    const whereClause = {
-      leagueId,
-      ...(includeInactive ? {} : { isActive: true })
+    let query = supabase
+      .from('teams')
+      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .eq('league_id', leagueId)
+      .order('is_active', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (!includeInactive) {
+      query = query.eq('is_active', true)
     }
 
-    const teams = await prisma.team.findMany({
-      where: whereClause,
-      include: {
-        captain: {
-          select: { id: true, name: true, email: true, image: true }
-        },
-        _count: {
-          select: { members: true }
-        }
-      },
-      orderBy: [
-        { isActive: 'desc' },
-        { createdAt: 'desc' }
-      ]
-    })
+    const { data: teams, error } = await query
 
-    return NextResponse.json({ teams })
+    if (error) {
+      throw error
+    }
+
+    // Transform to match expected response shape
+    const transformedTeams = (teams || []).map(team => ({
+      ...team,
+      primaryColor: team.primary_color,
+      secondaryColor: team.secondary_color,
+      captainId: team.captain_id,
+      maxMembers: team.max_members,
+      isActive: team.is_active,
+      leagueId: team.league_id,
+      createdAt: team.created_at,
+      _count: { members: team.members?.length ?? 0 },
+      members: undefined,
+    }))
+
+    return NextResponse.json({ teams: transformedTeams })
 
   } catch (error) {
     console.error('Failed to fetch league teams:', error)
@@ -139,6 +160,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const supabase = await createClient()
     const { id: leagueId } = await params
     const body = await request.json()
     const { action, clubTeamIds } = body
@@ -151,12 +173,13 @@ export async function PATCH(
     }
 
     // Check if league exists
-    const league = await prisma.league.findUnique({
-      where: { id: leagueId },
-      include: { _count: { select: { teams: true } } }
-    })
+    const { data: league, error: leagueError } = await supabase
+      .from('leagues')
+      .select('id')
+      .eq('id', leagueId)
+      .maybeSingle()
 
-    if (!league) {
+    if (leagueError || !league) {
       return NextResponse.json(
         { error: 'League not found' },
         { status: 404 }
@@ -164,75 +187,75 @@ export async function PATCH(
     }
 
     // Get club teams to import
-    const clubTeams = await prisma.team.findMany({
-      where: {
-        id: { in: clubTeamIds },
-        isActive: true,
-        clubId: { not: null }
-      },
-      include: {
-        captain: { select: { id: true, name: true, email: true, image: true } },
-        club: { select: { name: true } }
-      }
-    })
+    const { data: clubTeams, error: clubTeamsError } = await supabase
+      .from('teams')
+      .select('*, captain:users!captain_id(id, name, email, image), club:clubs!club_id(name)')
+      .in('id', clubTeamIds)
+      .eq('is_active', true)
+      .not('club_id', 'is', null)
 
-    if (clubTeams.length === 0) {
+    if (clubTeamsError) {
+      throw clubTeamsError
+    }
+
+    if (!clubTeams || clubTeams.length === 0) {
       return NextResponse.json(
         { error: 'No valid club teams found' },
         { status: 404 }
       )
     }
 
-    // Check team limit
-    const totalAfterImport = league._count.teams + clubTeams.length
-    if (league.maxTeams && totalAfterImport > league.maxTeams) {
-      return NextResponse.json(
-        { error: `Cannot import ${clubTeams.length} teams. League limit: ${league.maxTeams}, current: ${league._count.teams}` },
-        { status: 400 }
-      )
-    }
+    // Import teams sequentially (replacing $transaction)
+    const importedTeams = []
 
-    // Import teams in a transaction
-    const importedTeams = await prisma.$transaction(async (tx) => {
-      const teams = []
+    for (const clubTeam of clubTeams) {
+      // Check if already imported - skip if team with same name exists in league
+      const { data: existingImport } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('league_id', leagueId)
+        .eq('name', clubTeam.name)
+        .maybeSingle()
 
-      for (const clubTeam of clubTeams) {
-        // Check if already imported - skip this check for now as we don't have sourceId/sourceType fields
-        const existingImport = await tx.team.findFirst({
-          where: {
-            leagueId,
-            name: clubTeam.name
-          }
-        })
-
-        if (existingImport) {
-          continue // Skip if already imported
-        }
-
-        // Create league team from club team
-        const leagueTeam = await tx.team.create({
-          data: {
-            leagueId,
-            name: clubTeam.name,
-            description: clubTeam.description,
-            primaryColor: clubTeam.primaryColor,
-            secondaryColor: clubTeam.secondaryColor,
-            logo: clubTeam.logo,
-            captainId: clubTeam.captainId,
-            maxMembers: clubTeam.maxMembers,
-            isActive: true
-          },
-          include: {
-            captain: { select: { id: true, name: true, email: true, image: true } },
-            _count: { select: { members: true } }
-          }
-        })
-
-        teams.push(leagueTeam)
+      if (existingImport) {
+        continue // Skip if already imported
       }
 
-      return teams
-    })
+      // Create league team from club team
+      const { data: leagueTeam, error: createError } = await supabase
+        .from('teams')
+        .insert({
+          league_id: leagueId,
+          name: clubTeam.name,
+          description: clubTeam.description,
+          primary_color: clubTeam.primary_color,
+          secondary_color: clubTeam.secondary_color,
+          logo: clubTeam.logo,
+          captain_id: clubTeam.captain_id,
+          max_members: clubTeam.max_members,
+          is_active: true,
+        })
+        .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+        .single()
+
+      if (createError) {
+        throw createError
+      }
+
+      // Transform to match expected response shape
+      importedTeams.push({
+        ...leagueTeam,
+        primaryColor: leagueTeam.primary_color,
+        secondaryColor: leagueTeam.secondary_color,
+        captainId: leagueTeam.captain_id,
+        maxMembers: leagueTeam.max_members,
+        isActive: leagueTeam.is_active,
+        leagueId: leagueTeam.league_id,
+        createdAt: leagueTeam.created_at,
+        _count: { members: leagueTeam.members?.length ?? 0 },
+        members: undefined,
+      })
+    }
 
     return NextResponse.json({
       success: true,

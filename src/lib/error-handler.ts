@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { ZodError } from 'zod'
-import { Prisma } from '@prisma/client'
 import { logger } from './logger'
 
 export class AppError extends Error {
@@ -96,30 +95,30 @@ export function handleError(error: unknown, context?: Record<string, any>): Erro
     }
   }
 
-  // Handle Prisma errors
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    const { code, message } = error
+  // Handle Supabase/PostgreSQL errors
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const dbError = error as { code?: string; message?: string; details?: string; hint?: string }
 
-    switch (code) {
-      case 'P2002':
+    switch (dbError.code) {
+      case '23505':
         return {
           message: 'A record with this information already exists',
           statusCode: 409,
           code: 'DUPLICATE_ENTRY'
         }
-      case 'P2025':
+      case 'PGRST116':
         return {
           message: 'Record not found',
           statusCode: 404,
           code: 'NOT_FOUND'
         }
-      case 'P2003':
+      case '23503':
         return {
           message: 'Invalid reference to related record',
           statusCode: 400,
           code: 'FOREIGN_KEY_CONSTRAINT'
         }
-      case 'P2034':
+      case '40001':
         return {
           message: 'Transaction failed due to conflict',
           statusCode: 409,
@@ -130,17 +129,8 @@ export function handleError(error: unknown, context?: Record<string, any>): Erro
           message: 'Database operation failed',
           statusCode: 500,
           code: 'DATABASE_ERROR',
-          details: process.env.NODE_ENV === 'development' ? message : undefined
+          details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
         }
-    }
-  }
-
-  // Handle Prisma validation errors
-  if (error instanceof Prisma.PrismaClientValidationError) {
-    return {
-      message: 'Invalid data provided',
-      statusCode: 400,
-      code: 'VALIDATION_ERROR'
     }
   }
 
@@ -198,14 +188,5 @@ export function getErrorMessage(error: unknown): string {
 
 // Client-side error reporting
 export function reportClientError(error: Error, context?: Record<string, any>) {
-  // In production, you might want to send this to an error tracking service
   console.error('Client error:', error, context)
-
-  // Example: Send to error tracking service
-  // if (typeof window !== 'undefined' && window.gtag) {
-  //   window.gtag('event', 'exception', {
-  //     description: error.message,
-  //     fatal: false
-  //   })
-  // }
 }

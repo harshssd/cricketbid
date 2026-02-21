@@ -6,15 +6,11 @@ export interface AuctionListItem {
   id: string
   name: string
   description?: string
-  scheduledAt: Date
-  timezone: string
   status: 'DRAFT' | 'LOBBY' | 'LIVE' | 'COMPLETED' | 'ARCHIVED'
   visibility: 'PUBLIC' | 'PRIVATE'
   primaryColor: string
   secondaryColor: string
   logo?: string
-  banner?: string
-  tagline?: string
   budgetPerTeam: number
   currencyName: string
   currencyIcon: string
@@ -23,7 +19,6 @@ export interface AuctionListItem {
   // Organization info
   league?: {
     name: string
-    code: string
   }
 
   // Owner info
@@ -105,13 +100,7 @@ export function useAuctions(options: UseAuctionsOptions = {}): UseAuctionsReturn
 
       const data = await response.json()
 
-      // Transform dates back to Date objects
-      const transformedAuctions = data.auctions.map((auction: any) => ({
-        ...auction,
-        scheduledAt: new Date(auction.scheduledAt)
-      }))
-
-      setAuctions(transformedAuctions)
+      setAuctions(data.auctions)
       setPagination(data.pagination)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'

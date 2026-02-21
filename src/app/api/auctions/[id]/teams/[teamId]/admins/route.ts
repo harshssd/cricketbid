@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { z } from 'zod'
 
@@ -9,7 +9,7 @@ interface RouteParams {
 
 const addAdminSchema = z.object({
   userEmail: z.string().email(),
-  role: z.enum(['CAPTAIN', 'VICE_CAPTAIN']).default('VICE_CAPTAIN')
+  role: z.enum(['CAPTAIN', 'MEMBER']).default('MEMBER')
 })
 
 const removeAdminSchema = z.object({
@@ -25,7 +25,7 @@ export async function GET(
     const { id: auctionId, teamId } = await params
 
     // Get authenticated user
-    const { userId, userEmail } = getAuthenticatedUser(request)
+    const { userId } = getAuthenticatedUser(request)
 
     if (!userId) {
       return NextResponse.json(
@@ -34,26 +34,16 @@ export async function GET(
       )
     }
 
-    // Verify user has permission to manage this team (auction owner or team captain)
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        teams: {
-          where: { id: teamId },
-          include: {
-            captain: true,
-            members: {
-              where: { role: { in: ['CAPTAIN', 'VICE_CAPTAIN'] } },
-              include: {
-                user: {
-                  select: { id: true, name: true, email: true, image: true }
-                }
-              }
-            }
-          }
-        }
-      }
-    })
+    const supabase = await createClient()
+
+    // Verify auction exists
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id, owner_id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) throw auctionError
 
     if (!auction) {
       return NextResponse.json(
@@ -62,7 +52,16 @@ export async function GET(
       )
     }
 
-    const team = auction.teams[0]
+    // Fetch team with captain
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, name, captain_id, captain:users!captain_id(id, name, email, image)')
+      .eq('id', teamId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (teamError) throw teamError
+
     if (!team) {
       return NextResponse.json(
         { error: 'Team not found' },
@@ -70,8 +69,10 @@ export async function GET(
       )
     }
 
+    const captain = team.captain as unknown as { id: string; name: string; email: string; image: string | null } | null
+
     // Check if user has permission (auction owner or team captain)
-    const canManage = auction.ownerId === userId || team.captain?.id === userId
+    const canManage = auction.owner_id === userId || captain?.id === userId
 
     if (!canManage) {
       return NextResponse.json(
@@ -80,34 +81,53 @@ export async function GET(
       )
     }
 
+    // Fetch team members with CAPTAIN or MEMBER role
+    const { data: members, error: membersError } = await supabase
+      .from('team_members')
+      .select('role, user:users!user_id(id, name, email, image)')
+      .eq('team_id', teamId)
+      .in('role', ['CAPTAIN', 'MEMBER'])
+
+    if (membersError) throw membersError
+
     // Build admin list
-    const admins = []
+    const admins: Array<{
+      id: string
+      name: string
+      email: string
+      image: string | null
+      role: string
+      source: string
+    }> = []
 
     // Add team captain if exists
-    if (team.captain) {
+    if (captain) {
       admins.push({
-        id: team.captain.id,
-        name: team.captain.name,
-        email: team.captain.email,
-        image: team.captain.image,
+        id: captain.id,
+        name: captain.name,
+        email: captain.email,
+        image: captain.image,
         role: 'CAPTAIN',
         source: 'team_captain'
       })
     }
 
     // Add team members with admin roles
-    team.members.forEach(member => {
-      if (member.user.id !== team.captain?.id) { // Don't duplicate captain
-        admins.push({
-          id: member.user.id,
-          name: member.user.name,
-          email: member.user.email,
-          image: member.user.image,
-          role: member.role,
-          source: 'team_member'
-        })
-      }
-    })
+    if (members) {
+      members.forEach((member) => {
+        const user = member.user as unknown as { id: string; name: string; email: string; image: string | null }
+        if (user.id !== captain?.id) { // Don't duplicate captain
+          admins.push({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+            role: member.role,
+            source: 'team_member'
+          })
+        }
+      })
+    }
 
     return NextResponse.json({
       teamId,
@@ -150,16 +170,16 @@ export async function POST(
       )
     }
 
-    // Verify user has permission to manage this team
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        teams: {
-          where: { id: teamId },
-          include: { captain: true }
-        }
-      }
-    })
+    const supabase = await createClient()
+
+    // Verify auction exists
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id, owner_id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) throw auctionError
 
     if (!auction) {
       return NextResponse.json(
@@ -168,7 +188,16 @@ export async function POST(
       )
     }
 
-    const team = auction.teams[0]
+    // Fetch team with captain
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .eq('id', teamId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (teamError) throw teamError
+
     if (!team) {
       return NextResponse.json(
         { error: 'Team not found' },
@@ -176,8 +205,10 @@ export async function POST(
       )
     }
 
+    const captain = team.captain as unknown as { id: string; name: string; email: string } | null
+
     // Check permission
-    const canManage = auction.ownerId === userId || team.captain?.id === userId
+    const canManage = auction.owner_id === userId || captain?.id === userId
 
     if (!canManage) {
       return NextResponse.json(
@@ -187,10 +218,13 @@ export async function POST(
     }
 
     // Find user to add
-    const userToAdd = await prisma.user.findUnique({
-      where: { email: userEmail },
-      select: { id: true, name: true, email: true }
-    })
+    const { data: userToAdd, error: userError } = await supabase
+      .from('users')
+      .select('id, name, email')
+      .eq('email', userEmail)
+      .maybeSingle()
+
+    if (userError) throw userError
 
     if (!userToAdd) {
       return NextResponse.json(
@@ -200,35 +234,35 @@ export async function POST(
     }
 
     // Check if user is already a member
-    const existingMember = await prisma.teamMember.findUnique({
-      where: {
-        teamId_userId: {
-          teamId,
-          userId: userToAdd.id
-        }
-      }
-    })
+    const { data: existingMember, error: existingError } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('team_id', teamId)
+      .eq('user_id', userToAdd.id)
+      .maybeSingle()
+
+    if (existingError) throw existingError
 
     if (existingMember) {
       // Update existing member's role
-      await prisma.teamMember.update({
-        where: {
-          teamId_userId: {
-            teamId,
-            userId: userToAdd.id
-          }
-        },
-        data: { role }
-      })
+      const { error: updateError } = await supabase
+        .from('team_members')
+        .update({ role })
+        .eq('team_id', teamId)
+        .eq('user_id', userToAdd.id)
+
+      if (updateError) throw updateError
     } else {
       // Create new team member
-      await prisma.teamMember.create({
-        data: {
-          teamId,
-          userId: userToAdd.id,
+      const { error: createError } = await supabase
+        .from('team_members')
+        .insert({
+          team_id: teamId,
+          user_id: userToAdd.id,
           role
-        }
-      })
+        })
+
+      if (createError) throw createError
     }
 
     return NextResponse.json({
@@ -280,16 +314,16 @@ export async function DELETE(
       )
     }
 
-    // Verify permission
-    const auction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        teams: {
-          where: { id: teamId },
-          include: { captain: true }
-        }
-      }
-    })
+    const supabase = await createClient()
+
+    // Verify auction exists
+    const { data: auction, error: auctionError } = await supabase
+      .from('auctions')
+      .select('id, owner_id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionError) throw auctionError
 
     if (!auction) {
       return NextResponse.json(
@@ -298,7 +332,16 @@ export async function DELETE(
       )
     }
 
-    const team = auction.teams[0]
+    // Fetch team with captain
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .eq('id', teamId)
+      .eq('auction_id', auctionId)
+      .maybeSingle()
+
+    if (teamError) throw teamError
+
     if (!team) {
       return NextResponse.json(
         { error: 'Team not found' },
@@ -306,8 +349,10 @@ export async function DELETE(
       )
     }
 
+    const captain = team.captain as unknown as { id: string; name: string; email: string } | null
+
     // Check permission
-    const canManage = auction.ownerId === userId || team.captain?.id === userId
+    const canManage = auction.owner_id === userId || captain?.id === userId
 
     if (!canManage) {
       return NextResponse.json(
@@ -317,7 +362,7 @@ export async function DELETE(
     }
 
     // Cannot remove the main team captain
-    if (team.captain?.id === userIdToRemove) {
+    if (captain?.id === userIdToRemove) {
       return NextResponse.json(
         { error: 'Cannot remove the main team captain. Change the captain first.' },
         { status: 400 }
@@ -325,24 +370,22 @@ export async function DELETE(
     }
 
     // Remove team member
-    const deletedMember = await prisma.teamMember.delete({
-      where: {
-        teamId_userId: {
-          teamId,
-          userId: userIdToRemove
-        }
-      },
-      include: {
-        user: {
-          select: { name: true, email: true }
-        }
-      }
-    })
+    const { data: deletedMember, error: deleteError } = await supabase
+      .from('team_members')
+      .delete()
+      .eq('team_id', teamId)
+      .eq('user_id', userIdToRemove)
+      .select('*, user:users!user_id(name, email)')
+      .single()
+
+    if (deleteError) throw deleteError
+
+    const deletedUser = deletedMember.user as unknown as { name: string; email: string }
 
     return NextResponse.json({
       success: true,
-      message: `${deletedMember.user.name} has been removed from team admins`,
-      removedUser: deletedMember.user
+      message: `${deletedUser.name} has been removed from team admins`,
+      removedUser: deletedUser
     })
 
   } catch (error) {

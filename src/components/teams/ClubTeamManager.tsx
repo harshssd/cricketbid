@@ -206,8 +206,8 @@ export function ClubTeamManager({ clubId, members, onTeamChange }: ClubTeamManag
         {[...Array(3)].map((_, i) => (
           <Card key={i} className="animate-pulse">
             <CardContent className="p-4">
-              <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
-              <div className="h-3 bg-gray-200 rounded w-2/3" />
+              <div className="h-4 bg-muted rounded w-1/3 mb-2" />
+              <div className="h-3 bg-muted rounded w-2/3" />
             </CardContent>
           </Card>
         ))}
@@ -248,13 +248,13 @@ export function ClubTeamManager({ clubId, members, onTeamChange }: ClubTeamManag
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{activeTeams.length}</div>
+            <div className="text-2xl font-bold text-primary">{activeTeams.length}</div>
             <div className="text-sm text-muted-foreground">Active Teams</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-green-600">
+            <div className="text-2xl font-bold text-success">
               {activeTeams.reduce((sum, team) => sum + team._count.members, 0)}
             </div>
             <div className="text-sm text-muted-foreground">Total Members</div>
@@ -420,7 +420,7 @@ function TeamCard({
 }: TeamCardProps) {
   if (editing) {
     return (
-      <Card className="border-blue-200 bg-blue-50/50">
+      <Card className="border-primary bg-primary/10">
         <CardHeader>
           <div className="space-y-3">
             <Input
@@ -528,7 +528,7 @@ function TeamCard({
               variant="outline"
               size="sm"
               onClick={onToggleStatus}
-              className={team.isActive ? 'text-red-600 hover:text-red-700' : 'text-green-600 hover:text-green-700'}
+              className={team.isActive ? 'text-destructive hover:text-destructive' : 'text-success hover:text-success'}
             >
               {team.isActive ? <Archive className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
             </Button>

@@ -275,7 +275,7 @@ export function LeagueTeamManager({ leagueId, members, onTeamChange }: LeagueTea
         )
       case 'AUCTION':
         return (
-          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700">
+          <Badge variant="outline" className="text-xs bg-warning/10 text-warning">
             <Crown className="w-3 h-3 mr-1" />
             Auction
           </Badge>
@@ -283,7 +283,7 @@ export function LeagueTeamManager({ leagueId, members, onTeamChange }: LeagueTea
       case 'LEAGUE':
       default:
         return (
-          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+          <Badge variant="outline" className="text-xs bg-info/10 text-info-foreground">
             League
           </Badge>
         )

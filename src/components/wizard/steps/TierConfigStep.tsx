@@ -9,8 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { TiersFormData, TierFormData, AuctionConfigFormData } from '@/lib/validations/auction'
 import { TierConfig } from '@/lib/types'
-import { DEFAULT_TIERS } from '@/lib/config-presets'
 import { validateBudgetConstraints } from '@/lib/validations/auction'
+
+const DEFAULT_TIERS: TierConfig[] = [
+  { name: 'Platinum', basePrice: 100, color: '#E5E4E2', minPerTeam: 1, maxPerTeam: 2 },
+  { name: 'Gold', basePrice: 75, color: '#FFD700', minPerTeam: 2, maxPerTeam: 4 },
+  { name: 'Silver', basePrice: 50, color: '#C0C0C0', minPerTeam: 3 },
+  { name: 'Bronze', basePrice: 25, color: '#CD7F32', minPerTeam: 0 },
+]
 import { Layers, DollarSign, Users, Plus, Minus, AlertTriangle, CheckCircle, Info } from 'lucide-react'
 
 interface TierConfigStepProps {
@@ -137,9 +143,9 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
       >
         <Card>
           <CardContent className="p-8 text-center">
-            <Layers className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Initializing Tiers...</h3>
-            <p className="text-gray-600">
+            <p className="text-muted-foreground">
               Setting up default player tiers with balanced pricing.
             </p>
           </CardContent>
@@ -160,7 +166,7 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center space-x-2 min-w-0">
-                <DollarSign className="h-5 w-5 text-green-600 shrink-0" />
+                <DollarSign className="h-5 w-5 text-success shrink-0" />
                 <Label htmlFor="budget-per-team" className="font-semibold whitespace-nowrap">
                   {config?.currencyName || 'Coins'} per Team
                 </Label>
@@ -179,9 +185,9 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                   }}
                   className="w-32"
                 />
-                <span className="text-sm text-gray-500">{config?.currencyIcon || '🪙'}</span>
+                <span className="text-sm text-muted-foreground">{config?.currencyIcon || '🪙'}</span>
                 {config?.budgetPerTeam && (
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted-foreground">
                     · Min cost: {getTotalMinCost()}/{config.budgetPerTeam}
                   </span>
                 )}
@@ -192,7 +198,7 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
 
         {/* Action Bar */}
         <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
+          <div className="flex items-center space-x-4 text-sm text-muted-foreground">
             <div className="flex items-center space-x-1">
               <Layers className="h-4 w-4" />
               <span>{tiers.length} tiers</span>
@@ -222,15 +228,15 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
 
         {/* Budget Validation */}
         {validation && config?.budgetPerTeam && (
-          <Card className={`border-2 ${validation.isValid ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+          <Card className={`border-2 ${validation.isValid ? 'border-success/30 bg-success/10' : 'border-destructive/30 bg-destructive/10'}`}>
             <CardHeader className="pb-3">
               <div className="flex items-center space-x-2">
                 {validation.isValid ? (
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <CheckCircle className="h-5 w-5 text-success" />
                 ) : (
-                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
                 )}
-                <CardTitle className={validation.isValid ? 'text-green-800' : 'text-red-800'}>
+                <CardTitle className={validation.isValid ? 'text-success-foreground' : 'text-destructive'}>
                   Budget Validation
                 </CardTitle>
               </div>
@@ -239,25 +245,25 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-4">
                 <div>
                   <div className="text-xl font-bold">{validation.flexibility}%</div>
-                  <div className="text-sm text-gray-600">Flexibility</div>
+                  <div className="text-sm text-muted-foreground">Flexibility</div>
                 </div>
                 <div>
                   <div className="text-xl font-bold">{getTotalMinCost()}</div>
-                  <div className="text-sm text-gray-600">Min Cost</div>
+                  <div className="text-sm text-muted-foreground">Min Cost</div>
                 </div>
                 <div>
                   <div className="text-xl font-bold">{getTotalMinPlayers()}</div>
-                  <div className="text-sm text-gray-600">Min Players</div>
+                  <div className="text-sm text-muted-foreground">Min Players</div>
                 </div>
                 <div>
                   <div className="text-xl font-bold">{config.squadSize}</div>
-                  <div className="text-sm text-gray-600">Squad Size</div>
+                  <div className="text-sm text-muted-foreground">Squad Size</div>
                 </div>
               </div>
               {validation.warnings.length > 0 && (
                 <div className="space-y-1">
                   {validation.warnings.map((warning, index) => (
-                    <p key={index} className={`text-sm ${validation.isValid ? 'text-green-700' : 'text-red-700'}`}>
+                    <p key={index} className={`text-sm ${validation.isValid ? 'text-success-foreground' : 'text-destructive'}`}>
                       • {warning}
                     </p>
                   ))}
@@ -305,7 +311,7 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                       size="sm"
                       onClick={() => removeTier(index)}
                       disabled={tiers.length <= 2}
-                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive/80"
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
@@ -323,10 +329,10 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                       maxLength={30}
                       value={tier.name || ''}
                       onChange={(e) => handleTierChange(index, 'name', e.target.value)}
-                      className={getFieldError(index, 'name') ? 'border-red-500' : ''}
+                      className={getFieldError(index, 'name') ? 'border-destructive' : ''}
                     />
                     {getFieldError(index, 'name') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'name')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'name')}</p>
                     )}
                   </div>
 
@@ -341,23 +347,23 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                         placeholder="50"
                         value={tier.basePrice || ''}
                         onChange={(e) => handleTierChange(index, 'basePrice', e.target.value)}
-                        className={getFieldError(index, 'basePrice') ? 'border-red-500' : ''}
+                        className={getFieldError(index, 'basePrice') ? 'border-destructive' : ''}
                       />
-                      <span className="text-xs text-gray-500">{config?.currencyIcon}</span>
+                      <span className="text-xs text-muted-foreground">{config?.currencyIcon}</span>
                     </div>
                     {config?.budgetPerTeam && (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         of {config.budgetPerTeam} {config.currencyName || 'Coins'} per team
                       </p>
                     )}
                     {getFieldError(index, 'basePrice') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'basePrice')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'basePrice')}</p>
                     )}
                   </div>
 
                   {/* Min Per Team */}
                   <div className="space-y-2">
-                    <Label htmlFor={`min-per-team-${index}`}>Min/Team <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                    <Label htmlFor={`min-per-team-${index}`}>Min/Team <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                     <Input
                       id={`min-per-team-${index}`}
                       type="number"
@@ -366,16 +372,16 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                       placeholder="No min"
                       value={tier.minPerTeam ?? ''}
                       onChange={(e) => handleTierChange(index, 'minPerTeam', e.target.value)}
-                      className={getFieldError(index, 'minPerTeam') ? 'border-red-500' : ''}
+                      className={getFieldError(index, 'minPerTeam') ? 'border-destructive' : ''}
                     />
                     {getFieldError(index, 'minPerTeam') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'minPerTeam')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'minPerTeam')}</p>
                     )}
                   </div>
 
                   {/* Max Per Team */}
                   <div className="space-y-2">
-                    <Label htmlFor={`max-per-team-${index}`}>Max/Team <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                    <Label htmlFor={`max-per-team-${index}`}>Max/Team <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                     <Input
                       id={`max-per-team-${index}`}
                       type="number"
@@ -384,28 +390,28 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
                       placeholder="No max"
                       value={tier.maxPerTeam ?? ''}
                       onChange={(e) => handleTierChange(index, 'maxPerTeam', e.target.value)}
-                      className={getFieldError(index, 'maxPerTeam') ? 'border-red-500' : ''}
+                      className={getFieldError(index, 'maxPerTeam') ? 'border-destructive' : ''}
                     />
                     {getFieldError(index, 'maxPerTeam') && (
-                      <p className="text-sm text-red-600">{getFieldError(index, 'maxPerTeam')}</p>
+                      <p className="text-sm text-destructive">{getFieldError(index, 'maxPerTeam')}</p>
                     )}
                   </div>
                 </div>
 
                 {/* Tier Stats */}
-                <div className="bg-gray-50 rounded p-3 text-sm">
+                <div className="bg-muted rounded p-3 text-sm">
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div>
                       <div className="font-medium">{tier.basePrice || 0}</div>
-                      <div className="text-gray-600">Base Price</div>
+                      <div className="text-muted-foreground">Base Price</div>
                     </div>
                     <div>
                       <div className="font-medium">{tier.minPerTeam != null ? (tier.minPerTeam * (tier.basePrice || 0)) : '—'}</div>
-                      <div className="text-gray-600">Min Cost</div>
+                      <div className="text-muted-foreground">Min Cost</div>
                     </div>
                     <div>
                       <div className="font-medium">{tier.minPerTeam ?? '—'}-{tier.maxPerTeam ?? '∞'}</div>
-                      <div className="text-gray-600">Per Team</div>
+                      <div className="text-muted-foreground">Per Team</div>
                     </div>
                   </div>
                 </div>
@@ -415,14 +421,14 @@ export function TierConfigStep({ tiers, config, onChange, onConfigChange, onInit
         </div>
 
         {/* Tier Tips */}
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-info/30 bg-info/10">
           <CardHeader>
-            <CardTitle className="text-blue-800 flex items-center space-x-2">
+            <CardTitle className="text-info-foreground flex items-center space-x-2">
               <Info className="h-5 w-5" />
               <span>Tier Configuration Tips</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-blue-700 space-y-2">
+          <CardContent className="text-sm text-info-foreground space-y-2">
             <ul className="list-disc list-inside space-y-1">
               <li>
                 <strong>Base Price:</strong> Starting bid price - higher tiers should have higher base prices
