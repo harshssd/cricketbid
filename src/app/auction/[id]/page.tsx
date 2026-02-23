@@ -724,13 +724,24 @@ export default function AuctionPage() {
       return team
     })
 
-    const updatedAuction: AuctionState = {
+    const nextIndex = auction.auctionIndex + 1
+
+    let updatedAuction: AuctionState = {
       ...auction,
       teams: updatedTeams,
       soldPlayers: { ...auction.soldPlayers, [playerName]: { team: sellTeam, price } },
       auctionHistory: [...auction.auctionHistory, { player: playerName, team: sellTeam, price, action: 'SOLD' }],
-      auctionIndex: auction.auctionIndex + 1,
+      auctionIndex: nextIndex,
       lastUpdated: new Date().toISOString()
+    }
+
+    // Auto-bring-back deferred players when main round ends
+    if (nextIndex >= auction.auctionQueue.length && auction.deferredPlayers.length > 0) {
+      updatedAuction = {
+        ...updatedAuction,
+        auctionQueue: [...auction.auctionQueue, ...auction.deferredPlayers],
+        deferredPlayers: [],
+      }
     }
 
     setAuction(updatedAuction)
@@ -740,9 +751,8 @@ export default function AuctionPage() {
 
     // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
     await closeRound()
-    const nextIndex = auction.auctionIndex + 1
-    if (nextIndex < auction.auctionQueue.length) {
-      await openRound(auction.auctionQueue[nextIndex])
+    if (nextIndex < updatedAuction.auctionQueue.length) {
+      await openRound(updatedAuction.auctionQueue[nextIndex])
     }
 
     saveAuction(updatedAuction)
@@ -751,13 +761,23 @@ export default function AuctionPage() {
   const handleUnsold = async () => {
     if (!auction) return
     const playerName = auction.auctionQueue[auction.auctionIndex]
+    const nextIndex = auction.auctionIndex + 1
 
-    const updatedAuction: AuctionState = {
+    let updatedAuction: AuctionState = {
       ...auction,
       unsoldPlayers: [...auction.unsoldPlayers, playerName],
       auctionHistory: [...auction.auctionHistory, { player: playerName, team: '', price: 0, action: 'UNSOLD' }],
-      auctionIndex: auction.auctionIndex + 1,
+      auctionIndex: nextIndex,
       lastUpdated: new Date().toISOString()
+    }
+
+    // Auto-bring-back deferred players when main round ends
+    if (nextIndex >= auction.auctionQueue.length && auction.deferredPlayers.length > 0) {
+      updatedAuction = {
+        ...updatedAuction,
+        auctionQueue: [...auction.auctionQueue, ...auction.deferredPlayers],
+        deferredPlayers: [],
+      }
     }
 
     setAuction(updatedAuction)
@@ -765,9 +785,8 @@ export default function AuctionPage() {
 
     // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
     await closeRound()
-    const nextIndex = auction.auctionIndex + 1
-    if (nextIndex < auction.auctionQueue.length) {
-      await openRound(auction.auctionQueue[nextIndex])
+    if (nextIndex < updatedAuction.auctionQueue.length) {
+      await openRound(updatedAuction.auctionQueue[nextIndex])
     }
 
     saveAuction(updatedAuction)
@@ -779,9 +798,8 @@ export default function AuctionPage() {
 
     const newQueue = [...auction.auctionQueue]
     newQueue.splice(auction.auctionIndex, 1)
-    newQueue.push(playerName)
 
-    const updatedAuction: AuctionState = {
+    let updatedAuction: AuctionState = {
       ...auction,
       auctionQueue: newQueue,
       deferredPlayers: [...auction.deferredPlayers, playerName],
@@ -789,13 +807,22 @@ export default function AuctionPage() {
       lastUpdated: new Date().toISOString()
     }
 
+    // Auto-bring-back deferred players when main round ends
+    if (auction.auctionIndex >= newQueue.length && updatedAuction.deferredPlayers.length > 0) {
+      updatedAuction = {
+        ...updatedAuction,
+        auctionQueue: [...newQueue, ...updatedAuction.deferredPlayers],
+        deferredPlayers: [],
+      }
+    }
+
     setAuction(updatedAuction)
     setRoundBids([])
 
     // Close round, open for new current player — BEFORE broadcasting so bidders find the round in DB
     await closeRound()
-    if (auction.auctionIndex < newQueue.length) {
-      await openRound(newQueue[auction.auctionIndex])
+    if (auction.auctionIndex < updatedAuction.auctionQueue.length) {
+      await openRound(updatedAuction.auctionQueue[auction.auctionIndex])
     }
 
     saveAuction(updatedAuction)
@@ -841,8 +868,8 @@ export default function AuctionPage() {
       const deferredIdx = newQueue.lastIndexOf(lastAction.player)
       if (deferredIdx !== -1) {
         newQueue.splice(deferredIdx, 1)
-        newQueue.splice(auction.auctionIndex, 0, lastAction.player)
       }
+      newQueue.splice(auction.auctionIndex, 0, lastAction.player)
       updatedAuction = {
         ...updatedAuction,
         auctionQueue: newQueue,
@@ -1612,7 +1639,6 @@ export default function AuctionPage() {
                     basePrice={auction.auctionIndex < auction.auctionQueue.length ? getPlayerInfo(auction.auctionQueue[auction.auctionIndex]).basePrice : 0}
                     auctionIndex={auction.auctionIndex}
                     isComplete={auction.auctionIndex >= auction.auctionQueue.length}
-                    onBringBackDeferred={() => {}}
                     onFinishAuction={() => {}}
                   >
                     <AuctionControls

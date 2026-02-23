@@ -12,7 +12,6 @@ interface NowAuctioningCardProps {
   basePrice: number
   auctionIndex: number
   isComplete: boolean
-  onBringBackDeferred: () => void
   onFinishAuction: () => void
   children?: React.ReactNode
 }
@@ -23,7 +22,6 @@ export function NowAuctioningCard({
   basePrice,
   auctionIndex,
   isComplete,
-  onBringBackDeferred,
   onFinishAuction,
   children,
 }: NowAuctioningCardProps) {
@@ -62,10 +60,9 @@ export function NowAuctioningCard({
         ) : (
           <div className="text-center py-8">
             <Trophy className="h-16 w-16 mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-2xl font-bold mb-2">Main Round Complete</h2>
+            <h2 className="text-2xl font-bold mb-2">Auction Complete</h2>
             <div className="space-x-2">
-              <Button onClick={onBringBackDeferred}>Bring Back Deferred</Button>
-              <Button variant="outline" onClick={onFinishAuction}>Finish Auction</Button>
+              <Button onClick={onFinishAuction}>Finish Auction</Button>
             </div>
           </div>
         )}

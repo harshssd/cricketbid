@@ -86,10 +86,7 @@ export function TeamCard({ team, compact }: TeamCardProps) {
     )
   }
 
-  // Expanded mode
-  const displayPlayers = team.players.slice(0, 5)
-  const extraCount = Math.max(0, team.players.length - 5)
-
+  // Expanded mode — show all players
   return (
     <div className="bg-card rounded-xl border p-4 lg:p-5">
       {/* Header */}
@@ -121,7 +118,7 @@ export function TeamCard({ team, compact }: TeamCardProps) {
       </div>
 
       {/* Player list */}
-      {(team.captain || displayPlayers.length > 0) && (
+      {(team.captain || team.players.length > 0) && (
         <div className="space-y-1.5">
           {team.captain && (
             <div className="flex items-center gap-1.5 text-xs">
@@ -132,15 +129,12 @@ export function TeamCard({ team, compact }: TeamCardProps) {
               )}
             </div>
           )}
-          {displayPlayers.map((p, i) => (
+          {team.players.map((p, i) => (
             <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="text-[11px]">{getRoleIcon(p.role)}</span>
               <span className="truncate">{p.name}</span>
             </div>
           ))}
-          {extraCount > 0 && (
-            <p className="text-xs text-muted-foreground/60">+{extraCount} more</p>
-          )}
         </div>
       )}
     </div>

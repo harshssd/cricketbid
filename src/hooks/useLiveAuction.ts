@@ -62,6 +62,12 @@ export function useLiveAuction(auctionId: string) {
   const timersRef = useRef<NodeJS.Timeout[]>([])
   const teamColorMapRef = useRef<Map<string, string>>(new Map())
   const handleStateRef = useRef<(state: AuctionState) => void>(() => {})
+  const viewStateRef = useRef<ViewState>('connecting')
+
+  const setView = useCallback((v: ViewState) => {
+    viewStateRef.current = v
+    setView(v)
+  }, [])
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(t => clearTimeout(t))
@@ -147,11 +153,11 @@ export function useLiveAuction(auctionId: string) {
         prevAuctionIndexRef.current = auctionIdx
 
         if (!state.auctionStarted) {
-          setViewState('waiting')
+          setView('waiting')
         } else if (auctionIdx >= queueLen && queueLen > 0) {
-          setViewState('auction_complete')
+          setView('auction_complete')
         } else {
-          setViewState('player_up')
+          setView('player_up')
         }
         return
       }
@@ -159,7 +165,7 @@ export function useLiveAuction(auctionId: string) {
       // Not started
       if (!state.auctionStarted) {
         clearTimers()
-        setViewState('waiting')
+        setView('waiting')
         prevHistoryLenRef.current = historyLen
         prevAuctionIndexRef.current = auctionIdx
         return
@@ -168,7 +174,7 @@ export function useLiveAuction(auctionId: string) {
       // Auction complete
       if (auctionIdx >= queueLen && queueLen > 0) {
         clearTimers()
-        setViewState('auction_complete')
+        setView('auction_complete')
         prevHistoryLenRef.current = historyLen
         prevAuctionIndexRef.current = auctionIdx
         return
@@ -181,13 +187,7 @@ export function useLiveAuction(auctionId: string) {
         // UNSOLD or DEFERRED
         if (latestEntry.action === 'unsold' || latestEntry.action === 'deferred') {
           clearTimers()
-          setViewState('between_bids')
-
-          const t = setTimeout(() => {
-            if (!mountedRef.current) return
-            setViewState('player_up')
-          }, 1500)
-          timersRef.current.push(t)
+          setView('between_bids')
         } else {
           // SOLD
           clearTimers()
@@ -197,17 +197,11 @@ export function useLiveAuction(auctionId: string) {
             teamColor: getTeamColor(latestEntry.team),
             price: latestEntry.price,
           })
-          setViewState('sold_celebration')
+          setView('sold_celebration')
 
           const t1 = setTimeout(() => {
             if (!mountedRef.current) return
-            setViewState('between_bids')
-
-            const t2 = setTimeout(() => {
-              if (!mountedRef.current) return
-              setViewState('player_up')
-            }, 1500)
-            timersRef.current.push(t2)
+            setView('between_bids')
           }, 3500)
           timersRef.current.push(t1)
         }
@@ -220,20 +214,21 @@ export function useLiveAuction(auctionId: string) {
       // Detect UNSOLD/DEFERRED via index advance without history change
       if (auctionIdx > prevAuctionIndexRef.current) {
         clearTimers()
-        setViewState('between_bids')
-
-        const t = setTimeout(() => {
-          if (!mountedRef.current) return
-          setViewState('player_up')
-        }, 1500)
-        timersRef.current.push(t)
+        setView('between_bids')
 
         prevHistoryLenRef.current = historyLen
         prevAuctionIndexRef.current = auctionIdx
         return
       }
 
-      // No transition — update refs only
+      // Fallthrough: advance from between_bids when next player is ready
+      if (viewStateRef.current === 'between_bids'
+        && state.auctionStarted
+        && auctionIdx < queueLen) {
+        setView('player_up')
+      }
+
+      // Update refs
       prevHistoryLenRef.current = historyLen
       prevAuctionIndexRef.current = auctionIdx
     }
