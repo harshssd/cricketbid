@@ -132,6 +132,7 @@ export default function LiveAuctionView({ auctionId }: LiveAuctionViewProps) {
   } = useLiveAuction(auctionId)
   const { config } = useViewConfig(auctionId, 'public')
   const [budgetsExpanded, setBudgetsExpanded] = useState(true)
+  const [showSquads, setShowSquads] = useState(false)
 
   return (
     <div className="min-h-screen bg-muted">
@@ -139,9 +140,31 @@ export default function LiveAuctionView({ auctionId }: LiveAuctionViewProps) {
         auctionName={auctionName}
         progress={progress}
         isConnected={isConnected}
+        showSquads={showSquads}
+        onToggleSquads={() => setShowSquads(prev => !prev)}
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Squads overlay — shown on toggle, above the normal view */}
+        <AnimatePresence>
+          {showSquads && teams.length > 0 && (
+            <motion.div
+              key="squads-overlay"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="mb-8"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+                {teams.map((team) => (
+                  <TeamCard key={team.name} team={team} />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence mode="wait">
           {(viewState === 'connecting' || viewState === 'waiting') && (
             <WaitingState key="waiting" state={viewState} />

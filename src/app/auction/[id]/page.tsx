@@ -218,6 +218,7 @@ export default function AuctionPage() {
   })
   const [selectedRoles, setSelectedRoles] = useState<string[]>(['BATSMAN'])
   const [playerSearchTerm, setPlayerSearchTerm] = useState('')
+  const [showSquads, setShowSquads] = useState(false)
 
   // Sync tab with browser back/forward
   useEffect(() => {
@@ -1630,6 +1631,7 @@ export default function AuctionPage() {
           {/* Auction Tab — uses extracted components */}
           <TabsContent value="auction">
             {auction.auctionStarted ? (
+              <>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Auction Controls */}
                 <div className="lg:col-span-2 space-y-6">
@@ -1671,6 +1673,14 @@ export default function AuctionPage() {
                 {/* Sidebar */}
                 <div className="space-y-6">
                   <TeamBudgetsSidebar teams={auction.teams} />
+                  <Button
+                    variant={showSquads ? 'default' : 'outline'}
+                    className="w-full gap-2"
+                    onClick={() => setShowSquads(prev => !prev)}
+                  >
+                    <Users className="w-4 h-4" />
+                    {showSquads ? 'Hide Squads' : 'View Squads'}
+                  </Button>
                   <AuctionProgressPanel
                     soldCount={Object.keys(auction.soldPlayers).length}
                     remaining={auction.auctionQueue.length - auction.auctionIndex}
@@ -1681,6 +1691,58 @@ export default function AuctionPage() {
                   <ShareLinksPanel auctionId={auctionId} auctionName={auction.name} />
                 </div>
               </div>
+
+              {/* Squads section — toggled on demand */}
+              <AnimatePresence>
+                {showSquads && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden mt-6"
+                  >
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-muted-foreground" />
+                      All Squads
+                    </h3>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {auction.teams.map((team, index) => (
+                        <Card key={index}>
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div>
+                                <p className="font-medium">{team.name}</p>
+                                <p className="text-xs text-muted-foreground tabular-nums">{team.coins} / {team.originalCoins}</p>
+                              </div>
+                              <span className="text-xs text-muted-foreground">{team.players.length} players</span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-3">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{ width: `${team.originalCoins > 0 ? (team.coins / team.originalCoins) * 100 : 0}%` }}
+                              />
+                            </div>
+                            {team.players.length > 0 ? (
+                              <div className="space-y-1">
+                                {team.players.map((p, i) => (
+                                  <div key={i} className="flex justify-between items-center text-sm">
+                                    <span className="truncate">{p.name}</span>
+                                    <Badge variant="secondary" className="tabular-nums text-xs ml-2 shrink-0">{p.price}</Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No players yet</p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              </>
             ) : (
               <div className="text-center py-16 text-muted-foreground">
                 <Trophy className="w-12 h-12 mx-auto mb-4 opacity-50" />

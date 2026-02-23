@@ -2,48 +2,6 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { logger } from '@/lib/logger'
 
-// Rate limiting store (in production, use Redis or external service)
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>()
-
-interface RateLimitConfig {
-  windowMs: number
-  maxRequests: number
-  message?: string
-}
-
-function getRateLimitKey(request: NextRequest): string {
-  // Use IP address as the key, fallback to a default
-  const forwarded = request.headers.get('x-forwarded-for')
-  const realIp = request.headers.get('x-real-ip')
-  const ip = forwarded?.split(',')[0] || realIp || 'unknown'
-  return `ratelimit:${ip}`
-}
-
-function checkRateLimit(request: NextRequest, config: RateLimitConfig): boolean {
-  const key = getRateLimitKey(request)
-  const now = Date.now()
-  const windowMs = config.windowMs || 15 * 60 * 1000 // Default: 15 minutes
-  const maxRequests = config.maxRequests || 100 // Default: 100 requests
-
-  const record = rateLimitStore.get(key)
-
-  if (!record || now > record.resetTime) {
-    // New window or expired record
-    rateLimitStore.set(key, {
-      count: 1,
-      resetTime: now + windowMs
-    })
-    return true
-  }
-
-  if (record.count >= maxRequests) {
-    return false
-  }
-
-  record.count++
-  return true
-}
-
 function addSecurityHeaders(response: NextResponse): NextResponse {
   // Content Security Policy
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -131,47 +89,6 @@ export async function middleware(request: NextRequest) {
 
   let supabaseResponse = NextResponse.next({ request })
 
-  // Skip rate limiting in development
-  if (process.env.NODE_ENV !== 'production') {
-    // Continue without rate limiting in development
-  } else {
-    // Apply rate limiting only in production
-    const rateLimitConfig: RateLimitConfig = {
-      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-      maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '100'),
-      message: 'Too many requests, please try again later.'
-    }
-
-    // More strict rate limiting for API routes
-    if (isApiRoute(pathname)) {
-      rateLimitConfig.maxRequests = 50 // Lower limit for API routes
-      rateLimitConfig.windowMs = 5 * 60 * 1000 // 5 minutes window
-    }
-
-    // Even stricter for auth endpoints
-    if (pathname.startsWith('/api/auth/')) {
-      rateLimitConfig.maxRequests = 10
-      rateLimitConfig.windowMs = 15 * 60 * 1000 // 15 minutes
-    }
-
-    if (!checkRateLimit(request, rateLimitConfig)) {
-      logger.warn('Rate limit exceeded', {
-        ip: getRateLimitKey(request),
-        path: pathname,
-        userAgent: request.headers.get('user-agent')
-      })
-
-      return NextResponse.json(
-        {
-          error: rateLimitConfig.message,
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter: Math.ceil(rateLimitConfig.windowMs / 1000)
-        },
-        { status: 429 }
-      )
-    }
-  }
-
   // Skip Supabase middleware if not configured properly
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -217,7 +134,7 @@ export async function middleware(request: NextRequest) {
     if (!isPublicRoute(pathname) && (error || !user)) {
       logger.warn('Unauthorized access attempt', {
         path: pathname,
-        ip: getRateLimitKey(request),
+        ip: request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown',
         userAgent: request.headers.get('user-agent')
       })
 
@@ -255,7 +172,7 @@ export async function middleware(request: NextRequest) {
   } catch (error) {
     logger.error('Supabase middleware error', error as Error, {
       path: pathname,
-      ip: getRateLimitKey(request)
+      ip: request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown'
     })
   }
 

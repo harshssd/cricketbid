@@ -199,7 +199,7 @@ export function useCaptainSession(
   sessionId: string,
   options: UseCaptainSessionOptions = {}
 ): UseCaptainSessionReturn {
-  const { pollingInterval = 3000, enabled = true } = options
+  const { pollingInterval = 15000, enabled = true } = options
 
   const [session, setSession] = useState<CaptainSessionData | null>(null)
   const [loading, setLoading] = useState(true)

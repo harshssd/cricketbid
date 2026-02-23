@@ -125,7 +125,7 @@ export function useBidderSession(
   sessionId: string,
   options: UseBidderSessionOptions = {}
 ): UseBidderSessionReturn {
-  const { pollingInterval = 3000 } = options
+  const { pollingInterval = 15000 } = options
 
   const [session, setSession] = useState<BidderSessionData | null>(null)
   const [loading, setLoading] = useState(true)

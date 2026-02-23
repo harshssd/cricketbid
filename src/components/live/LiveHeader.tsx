@@ -2,15 +2,19 @@
 
 import { motion } from 'framer-motion'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Users } from 'lucide-react'
 import type { LiveAuctionProgress } from '@/hooks/useLiveAuction'
 
 interface LiveHeaderProps {
   auctionName: string
   progress: LiveAuctionProgress
   isConnected: boolean
+  showSquads?: boolean
+  onToggleSquads?: () => void
 }
 
-export function LiveHeader({ auctionName, progress, isConnected }: LiveHeaderProps) {
+export function LiveHeader({ auctionName, progress, isConnected, showSquads, onToggleSquads }: LiveHeaderProps) {
   const progressPct = progress.total > 0 ? (progress.sold / progress.total) * 100 : 0
 
   return (
@@ -46,6 +50,17 @@ export function LiveHeader({ auctionName, progress, isConnected }: LiveHeaderPro
                 />
               </div>
             </div>
+            {onToggleSquads && (
+              <Button
+                variant={showSquads ? 'default' : 'outline'}
+                size="sm"
+                onClick={onToggleSquads}
+                className="gap-1.5"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Squads
+              </Button>
+            )}
             <Badge variant="default">Live</Badge>
           </div>
         </div>

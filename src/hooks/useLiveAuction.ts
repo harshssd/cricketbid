@@ -260,7 +260,7 @@ export function useLiveAuction(auctionId: string) {
       } catch {
         // ignore polling errors
       }
-    }, 3000)
+    }, 15000)
 
     return () => clearInterval(poll)
   }, [auctionId])
