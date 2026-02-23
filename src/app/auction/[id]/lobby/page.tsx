@@ -30,9 +30,6 @@ interface TeamParticipant {
 interface LobbyTeam {
   id: string
   name: string
-  primaryColor: string
-  secondaryColor: string
-  logo?: string
   budgetRemaining: number
   budgetSpent: number
   playerCount: number
@@ -75,9 +72,6 @@ export default function AuctionLobbyPage() {
         teams: auction?.teamStats.map(team => ({
           id: team.id,
           name: team.name,
-          primaryColor: team.primaryColor,
-          secondaryColor: team.secondaryColor,
-          logo: team.logo,
           budgetRemaining: team.budgetRemaining,
           budgetSpent: team.budgetSpent,
           playerCount: team.playerCount,
@@ -305,18 +299,9 @@ export default function AuctionLobbyPage() {
             {lobbyData?.teams.map((team) => (
               <Card key={team.id} className="overflow-hidden">
                 <div
-                  className="h-16 p-4 flex items-center justify-between"
-                  style={{
-                    background: `linear-gradient(135deg, ${team.primaryColor}, ${team.secondaryColor})`
-                  }}
+                  className="h-16 p-4 flex items-center justify-between bg-gradient-to-br from-slate-700 to-slate-900"
                 >
                   <div className="flex items-center gap-3 text-white">
-                    {team.logo && (
-                      <Avatar className="h-8 w-8 ring-2 ring-white/20">
-                        <AvatarImage src={team.logo} alt={team.name} />
-                        <AvatarFallback>{team.name.slice(0, 2)}</AvatarFallback>
-                      </Avatar>
-                    )}
                     <div>
                       <h3 className="font-semibold">{team.name}</h3>
                     </div>

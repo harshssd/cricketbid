@@ -1,20 +1,17 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Separator } from '@/components/ui/separator'
 import {
-  Plus, Edit, Users, Crown, Trash2, UserPlus, X, AlertTriangle, Lock, Copy, ExternalLink, Shield
+  Plus, Users, Crown, Trash2, UserPlus, X, Lock,
+  Shield, ChevronRight, Search
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface User {
   id: string
@@ -40,8 +37,10 @@ interface Team {
   secondaryColor: string
   logo?: string
   captainId?: string
+  captainPlayerId?: string
   budgetRemaining?: number
   captain?: User
+  captainPlayer?: { id: string; name: string; image?: string; playingRole: string }
   players: PlayerInfo[]
   _count: {
     players: number
@@ -56,21 +55,10 @@ interface AuctionTeamManagerProps {
   onTeamChange?: () => void
 }
 
-interface TeamFormData {
-  name: string
-  description: string
-  primaryColor: string
-  secondaryColor: string
-  captainId: string
-}
-
-const defaultForm: TeamFormData = {
-  name: '',
-  description: '',
-  primaryColor: '#3B82F6',
-  secondaryColor: '#1B2A4A',
-  captainId: '',
-}
+const TEAM_COLORS = [
+  '#3B82F6', '#EF4444', '#22C55E', '#F59E0B',
+  '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
+]
 
 export function AuctionTeamManager({
   auctionId,
@@ -83,21 +71,29 @@ export function AuctionTeamManager({
   const [budgetPerTeam, setBudgetPerTeam] = useState<number>(1000)
   const [loading, setLoading] = useState(false)
   const [updatingBudget, setUpdatingBudget] = useState(false)
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
+  const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null)
 
-  // Dialogs
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editTeam, setEditTeam] = useState<Team | null>(null)
-  const [deleteTeam, setDeleteTeam] = useState<Team | null>(null)
-  const [playerAssignTeam, setPlayerAssignTeam] = useState<Team | null>(null)
+  // Inline edit state per team
+  const [editingNames, setEditingNames] = useState<Record<string, string>>({})
 
-  // Form state
-  const [form, setForm] = useState<TeamFormData>(defaultForm)
+  // Captain picker state
+  const [allPlayers, setAllPlayers] = useState<PlayerInfo[]>([])
+  const [loadingAllPlayers, setLoadingAllPlayers] = useState(false)
+  const [captainSearch, setCaptainSearch] = useState('')
+  const [assigningCaptain, setAssigningCaptain] = useState(false)
+  const [showCaptainPicker, setShowCaptainPicker] = useState(false)
 
-  // Available players for assignment (not already on a team)
+  // Player assignment state
   const [availablePlayers, setAvailablePlayers] = useState<PlayerInfo[]>([])
   const [loadingPlayers, setLoadingPlayers] = useState(false)
+  const [showPlayerPicker, setShowPlayerPicker] = useState(false)
+  const [playerSearch, setPlayerSearch] = useState('')
 
+  const nameInputRef = useRef<HTMLInputElement>(null)
   const isEditable = auctionStatus === 'DRAFT' || auctionStatus === 'LOBBY'
+
+  // ── Data fetching ──────────────────────────────────────────────
 
   const fetchTeams = useCallback(async () => {
     try {
@@ -127,11 +123,15 @@ export function AuctionTeamManager({
       const response = await fetch(`/api/auctions/${auctionId}/players/import`)
       const data = await response.json()
       if (data.players) {
-        // Filter to only unassigned players
-        const unassigned = data.players.filter(
-          (p: any) => !p.assignedTeam
-        )
-        setAvailablePlayers(unassigned)
+        const unassigned = data.players.filter((p: any) => !p.assignedTeam)
+        setAvailablePlayers(unassigned.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          image: p.image,
+          playingRole: p.playing_role || p.playingRole,
+          status: p.status,
+          tier: p.tier ? { name: p.tier.name, color: p.tier.color } : undefined,
+        })))
       }
     } catch (error) {
       console.error('Failed to fetch players:', error)
@@ -140,12 +140,33 @@ export function AuctionTeamManager({
     }
   }
 
-  // --- Create Team ---
-  const handleCreate = async () => {
-    if (!form.name.trim()) {
-      toast.error('Team name is required')
-      return
+  const fetchAllPlayers = async () => {
+    try {
+      setLoadingAllPlayers(true)
+      const response = await fetch(`/api/auctions/${auctionId}/players/import`)
+      const data = await response.json()
+      if (data.players) {
+        setAllPlayers(data.players.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          image: p.image,
+          playingRole: p.playing_role || p.playingRole,
+          status: p.status,
+          tier: p.tier ? { name: p.tier.name, color: p.tier.color } : undefined,
+        })))
+      }
+    } catch (error) {
+      console.error('Failed to fetch players:', error)
+    } finally {
+      setLoadingAllPlayers(false)
     }
+  }
+
+  // ── Team CRUD ──────────────────────────────────────────────────
+
+  const handleCreate = async () => {
+    const newName = `Team ${teams.length + 1}`
+    const color = TEAM_COLORS[teams.length % TEAM_COLORS.length]
 
     try {
       setLoading(true)
@@ -156,11 +177,9 @@ export function AuctionTeamManager({
           teams: [
             ...teams.map(t => ({ id: t.id, name: t.name, primaryColor: t.primaryColor, secondaryColor: t.secondaryColor })),
             {
-              name: form.name,
-              description: form.description || undefined,
-              primaryColor: form.primaryColor,
-              secondaryColor: form.secondaryColor,
-              captainId: form.captainId || undefined,
+              name: newName,
+              primaryColor: color,
+              secondaryColor: '#1B2A4A',
               budgetRemaining: budgetPerTeam,
             }
           ]
@@ -172,10 +191,20 @@ export function AuctionTeamManager({
         throw new Error(error.error || 'Failed to create team')
       }
 
-      toast.success(`Team "${form.name}" created`)
-      setForm(defaultForm)
-      setCreateOpen(false)
-      await fetchTeams()
+      const result = await response.json()
+      const newTeams = result.teams || []
+      setTeams(newTeams)
+
+      // Find the newly created team and expand it
+      const newTeam = newTeams.find((t: Team) => !teams.some(existing => existing.id === t.id))
+      if (newTeam) {
+        setExpandedTeamId(newTeam.id)
+        setEditingNames(prev => ({ ...prev, [newTeam.id]: newTeam.name }))
+        // Focus name input after a short delay for animation
+        setTimeout(() => nameInputRef.current?.select(), 200)
+      }
+
+      toast.success(`Team created`)
       onTeamChange?.()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create team')
@@ -184,33 +213,19 @@ export function AuctionTeamManager({
     }
   }
 
-  // --- Edit Team ---
-  const openEdit = (team: Team) => {
-    setForm({
-      name: team.name,
-      description: team.description || '',
-      primaryColor: team.primaryColor,
-      secondaryColor: team.secondaryColor,
-      captainId: team.captainId || '',
-    })
-    setEditTeam(team)
-  }
-
-  const handleEdit = async () => {
-    if (!editTeam || !form.name.trim()) return
+  const handleSaveName = async (team: Team) => {
+    const newName = editingNames[team.id]?.trim()
+    if (!newName || newName === team.name) {
+      // Reset to original
+      setEditingNames(prev => { const n = { ...prev }; delete n[team.id]; return n })
+      return
+    }
 
     try {
-      setLoading(true)
-      const response = await fetch(`/api/auctions/${auctionId}/teams/${editTeam.id}`, {
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${team.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          description: form.description || null,
-          primaryColor: form.primaryColor,
-          secondaryColor: form.secondaryColor,
-          captainId: form.captainId || null,
-        })
+        body: JSON.stringify({ name: newName })
       })
 
       if (!response.ok) {
@@ -218,25 +233,18 @@ export function AuctionTeamManager({
         throw new Error(error.error || 'Failed to update team')
       }
 
-      toast.success(`Team "${form.name}" updated`)
-      setEditTeam(null)
-      setForm(defaultForm)
-      await fetchTeams()
+      setTeams(prev => prev.map(t => t.id === team.id ? { ...t, name: newName } : t))
+      setEditingNames(prev => { const n = { ...prev }; delete n[team.id]; return n })
       onTeamChange?.()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to update team')
-    } finally {
-      setLoading(false)
     }
   }
 
-  // --- Delete Team ---
-  const handleDelete = async () => {
-    if (!deleteTeam) return
-
+  const handleDelete = async (team: Team) => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/auctions/${auctionId}/teams/${deleteTeam.id}`, {
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${team.id}`, {
         method: 'DELETE',
       })
 
@@ -245,8 +253,9 @@ export function AuctionTeamManager({
         throw new Error(error.error || 'Failed to delete team')
       }
 
-      toast.success(`Team "${deleteTeam.name}" deleted`)
-      setDeleteTeam(null)
+      toast.success(`Team "${team.name}" deleted`)
+      setDeletingTeamId(null)
+      setExpandedTeamId(null)
       await fetchTeams()
       onTeamChange?.()
     } catch (error) {
@@ -256,30 +265,74 @@ export function AuctionTeamManager({
     }
   }
 
-  // --- Assign Player ---
-  const handleAssignPlayer = async (playerId: string) => {
-    if (!playerAssignTeam) return
+  // ── Captain assignment ─────────────────────────────────────────
 
+  const handleAssignCaptain = async (teamId: string, playerId: string) => {
     try {
-      const response = await fetch(
-        `/api/auctions/${auctionId}/teams/${playerAssignTeam.id}/players`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerIds: [playerId] })
-        }
-      )
+      setAssigningCaptain(true)
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${teamId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captainPlayerId: playerId })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to assign captain')
+      }
+
+      toast.success('Captain assigned')
+      setShowCaptainPicker(false)
+      setCaptainSearch('')
+      await fetchTeams()
+      onTeamChange?.()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to assign captain')
+    } finally {
+      setAssigningCaptain(false)
+    }
+  }
+
+  const handleRemoveCaptain = async (teamId: string) => {
+    try {
+      setAssigningCaptain(true)
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${teamId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captainPlayerId: null })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to remove captain')
+      }
+
+      toast.success('Captain removed')
+      await fetchTeams()
+      onTeamChange?.()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove captain')
+    } finally {
+      setAssigningCaptain(false)
+    }
+  }
+
+  // ── Player assignment ──────────────────────────────────────────
+
+  const handleAssignPlayer = async (teamId: string, playerId: string) => {
+    try {
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${teamId}/players`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerIds: [playerId] })
+      })
 
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to assign player')
       }
 
-      const data = await response.json()
-      // Update local state
-      setPlayerAssignTeam(prev => prev ? { ...prev, players: data.team.players, _count: data.team._count } : null)
       setAvailablePlayers(prev => prev.filter(p => p.id !== playerId))
-      // Refresh teams list
       await fetchTeams()
       onTeamChange?.()
     } catch (error) {
@@ -287,53 +340,37 @@ export function AuctionTeamManager({
     }
   }
 
-  // --- Remove Player ---
-  const handleRemovePlayer = async (playerId: string) => {
-    if (!playerAssignTeam) return
-
+  const handleRemovePlayer = async (teamId: string, playerId: string) => {
     try {
-      const response = await fetch(
-        `/api/auctions/${auctionId}/teams/${playerAssignTeam.id}/players`,
-        {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerIds: [playerId] })
-        }
-      )
+      const response = await fetch(`/api/auctions/${auctionId}/teams/${teamId}/players`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerIds: [playerId] })
+      })
 
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to remove player')
       }
 
-      const data = await response.json()
-      const removedPlayer = playerAssignTeam.players.find(p => p.id === playerId)
-      setPlayerAssignTeam(prev => prev ? { ...prev, players: data.team.players, _count: data.team._count } : null)
-      if (removedPlayer) {
-        setAvailablePlayers(prev => [...prev, removedPlayer])
-      }
       await fetchTeams()
+      // Re-fetch available players if picker is open
+      if (showPlayerPicker) fetchAvailablePlayers()
       onTeamChange?.()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to remove player')
     }
   }
 
-  const openPlayerAssign = (team: Team) => {
-    setPlayerAssignTeam(team)
-    fetchAvailablePlayers()
-  }
+  // ── Budget ─────────────────────────────────────────────────────
 
-  // --- Update Budget ---
   const handleBudgetUpdate = async (newBudget: number) => {
     try {
       setUpdatingBudget(true)
       const response = await fetch(`/api/auctions/${auctionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          budgetPerTeam: newBudget
-        })
+        body: JSON.stringify({ budgetPerTeam: newBudget })
       })
 
       if (!response.ok) {
@@ -342,7 +379,7 @@ export function AuctionTeamManager({
       }
 
       setBudgetPerTeam(newBudget)
-      await fetchTeams() // Refresh teams to show updated budgets
+      await fetchTeams()
       onTeamChange?.()
       toast.success(`Budget updated to ${newBudget} coins per team`)
     } catch (error) {
@@ -352,76 +389,43 @@ export function AuctionTeamManager({
     }
   }
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast.success('URL copied to clipboard')
-    } catch (error) {
-      toast.error('Failed to copy URL')
+  // ── Helpers ────────────────────────────────────────────────────
+
+  const toggleExpand = (teamId: string) => {
+    if (expandedTeamId === teamId) {
+      setExpandedTeamId(null)
+      setShowCaptainPicker(false)
+      setShowPlayerPicker(false)
+    } else {
+      setExpandedTeamId(teamId)
+      setShowCaptainPicker(false)
+      setShowPlayerPicker(false)
+      setDeletingTeamId(null)
     }
   }
 
-  const getCaptainUrl = (team: Team) => {
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-    return `${baseUrl}/captain/${auctionId}-${team.id}`
+  const openCaptainPicker = () => {
+    setShowCaptainPicker(true)
+    setShowPlayerPicker(false)
+    setCaptainSearch('')
+    fetchAllPlayers()
   }
 
-  // Shared form fields rendered inline (NOT as a nested component to avoid focus loss)
-  const teamFormFields = (
-    <>
-      <div>
-        <Label htmlFor="team-name">Team Name *</Label>
-        <Input
-          id="team-name"
-          value={form.name}
-          onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
-          placeholder="Enter team name"
-        />
-      </div>
+  const openPlayerPicker = () => {
+    setShowPlayerPicker(true)
+    setShowCaptainPicker(false)
+    setPlayerSearch('')
+    fetchAvailablePlayers()
+  }
 
-      <div>
-        <Label htmlFor="team-desc">Description</Label>
-        <Textarea
-          id="team-desc"
-          value={form.description}
-          onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
-          placeholder="Optional description"
-          rows={2}
-        />
-      </div>
-
-      {availableMembers.length > 0 && (
-        <div>
-          <Label>Captain</Label>
-          <Select
-            value={form.captainId}
-            onValueChange={(value) => setForm(prev => ({ ...prev, captainId: value === 'none' ? '' : value }))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select a captain (optional)" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">No captain</SelectItem>
-              {availableMembers.map((member) => (
-                <SelectItem key={member.id} value={member.id}>
-                  {member.name} ({member.email})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-    </>
-  )
+  // ── Render ─────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">
-            Teams {auctionName ? `- ${auctionName}` : ''}
-          </h3>
+          <h3 className="text-lg font-semibold">Teams</h3>
           <p className="text-sm text-muted-foreground">
             {teams.length} team{teams.length !== 1 ? 's' : ''} configured
             {!isEditable && (
@@ -431,150 +435,15 @@ export function AuctionTeamManager({
             )}
           </p>
         </div>
-
         {isEditable && (
-          <Button onClick={() => { setForm(defaultForm); setCreateOpen(true) }}>
-            <Plus className="w-4 h-4 mr-2" />
+          <Button onClick={handleCreate} disabled={loading} size="sm">
+            <Plus className="w-4 h-4 mr-1.5" />
             Add Team
           </Button>
         )}
       </div>
 
-      {/* Budget Configuration */}
-      {isEditable && (
-        <Card className="bg-info/10 border-info/30">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-info-foreground">Budget per Team</h4>
-                <p className="text-sm text-info-foreground">
-                  Set how many coins each team/captain starts with
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={budgetPerTeam}
-                    onChange={(e) => setBudgetPerTeam(parseInt(e.target.value) || 0)}
-                    min="100"
-                    max="10000"
-                    step="50"
-                    className="w-24 h-8 text-center"
-                    disabled={updatingBudget}
-                  />
-                  <span className="text-sm text-info-foreground">coins</span>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleBudgetUpdate(budgetPerTeam)}
-                  disabled={updatingBudget || budgetPerTeam < 100 || budgetPerTeam > 10000}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                >
-                  {updatingBudget ? 'Saving...' : 'Update'}
-                </Button>
-              </div>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBudgetPerTeam(600)}
-                className="text-xs"
-                disabled={updatingBudget}
-              >
-                600
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBudgetPerTeam(1000)}
-                className="text-xs"
-                disabled={updatingBudget}
-              >
-                1000
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBudgetPerTeam(1500)}
-                className="text-xs"
-                disabled={updatingBudget}
-              >
-                1500
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Captain URLs Section */}
-      {teams.length > 0 && (
-        <Card className="bg-success/10 border-success/30">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h4 className="font-medium text-success-foreground">Team Bidding Links</h4>
-                <p className="text-sm text-success-foreground">
-                  Share these unique URLs with team administrators (captains and vice-captains) to access the bidding interface
-                </p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {teams.map((team) => (
-                <div key={team.id} className="flex items-center justify-between p-3 bg-card rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: team.primaryColor }}
-                    />
-                    <div>
-                      <p className="font-medium text-sm">{team.name}</p>
-                      {team.captain && (
-                        <p className="text-xs text-muted-foreground">Captain: {team.captain.name}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs bg-muted px-2 py-1 rounded font-mono max-w-xs truncate">
-                      {getCaptainUrl(team)}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(getCaptainUrl(team))}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.open(getCaptainUrl(team), '_blank')}
-                      className="h-8 w-8 p-0"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 p-3 bg-success/10 rounded-lg">
-              <p className="text-xs text-success-foreground">
-                <strong>Multi-Admin Access:</strong> Multiple users can access each team's bidding interface. The system checks for:
-                1) Team captain (assigned in team settings), 2) Team members with Captain/Vice-Captain roles,
-                3) Users with auction admin privileges (Owner/Moderator roles).
-              </p>
-              <p className="text-xs text-success-foreground mt-1">
-                <strong>Setup:</strong> Use the "Admins" button on each team to configure who can access the bidding interface.
-                All authorized users will be redirected to login if not authenticated.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Teams Grid */}
+      {/* Team Cards */}
       {loading && teams.length === 0 ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -583,317 +452,425 @@ export function AuctionTeamManager({
         <div className="text-center py-12 text-muted-foreground">
           <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
           <p>No teams yet</p>
-          {isEditable && <p className="text-sm">Add teams to get started</p>}
+          {isEditable && <p className="text-sm mt-1">Click "Add Team" to get started</p>}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {teams.map((team) => (
-            <Card key={team.id} className="relative">
-              {/* Color bar */}
-              <div
-                className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
-                style={{
-                  background: `linear-gradient(to right, ${team.primaryColor}, ${team.secondaryColor})`
-                }}
-              />
+        <div className="space-y-2">
+          <AnimatePresence initial={false}>
+            {teams.map((team, index) => {
+              const isExpanded = expandedTeamId === team.id
+              const isDeleting = deletingTeamId === team.id
+              const captainName = team.captainPlayer?.name || team.captain?.name
 
-              <CardHeader className="pb-3 pt-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-base font-medium flex items-center gap-2">
+              return (
+                <motion.div
+                  key={team.id}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10, height: 0 }}
+                  transition={{ duration: 0.2, delay: index * 0.03 }}
+                >
+                  <div className={`border rounded-lg overflow-hidden transition-colors ${
+                    isExpanded ? 'border-primary/40 shadow-sm' : 'hover:border-muted-foreground/30'
+                  }`}>
+                    {/* Collapsed row — always visible */}
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
+                      onClick={() => toggleExpand(team.id)}
+                    >
                       <div
-                        className="w-3 h-3 rounded-full border"
+                        className="w-3 h-3 rounded-full shrink-0"
                         style={{ backgroundColor: team.primaryColor }}
                       />
-                      {team.name}
-                    </CardTitle>
-                    {team.description && (
-                      <p className="text-sm text-muted-foreground mt-1">{team.description}</p>
-                    )}
+                      <span className="font-medium text-sm flex-1 truncate">{team.name}</span>
+                      <span className="text-xs text-muted-foreground hidden sm:inline">
+                        Captain: {captainName || '—'}
+                      </span>
+                      <Badge variant="secondary" className="text-xs tabular-nums shrink-0">
+                        {team.players?.length || 0} player{(team.players?.length || 0) !== 1 ? 's' : ''}
+                      </Badge>
+                      {team.budgetRemaining != null && (
+                        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                          {team.budgetRemaining}
+                        </span>
+                      )}
+                      <motion.div
+                        animate={{ rotate: isExpanded ? 90 : 0 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </motion.div>
+                    </button>
+
+                    {/* Expanded content */}
+                    <AnimatePresence initial={false}>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-4 pb-4 space-y-4 border-t bg-muted/20">
+                            <div className="pt-3" />
+
+                            {/* Team Name */}
+                            {isEditable && (
+                              <div>
+                                <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
+                                <Input
+                                  ref={nameInputRef}
+                                  value={editingNames[team.id] ?? team.name}
+                                  onChange={(e) => setEditingNames(prev => ({ ...prev, [team.id]: e.target.value }))}
+                                  onBlur={() => handleSaveName(team)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveName(team)
+                                    if (e.key === 'Escape') {
+                                      setEditingNames(prev => { const n = { ...prev }; delete n[team.id]; return n })
+                                    }
+                                  }}
+                                  className="h-9"
+                                />
+                              </div>
+                            )}
+
+                            {/* Captain */}
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Captain</label>
+                              {team.captainPlayer ? (
+                                <div className="flex items-center gap-2 p-2 rounded-md border bg-yellow-500/5 border-yellow-500/20">
+                                  <Avatar className="w-6 h-6">
+                                    <AvatarImage src={team.captainPlayer.image} />
+                                    <AvatarFallback className="text-xs">
+                                      {team.captainPlayer.name.charAt(0).toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-sm font-medium flex-1">{team.captainPlayer.name}</span>
+                                  <Crown className="w-3.5 h-3.5 text-yellow-600" />
+                                  {isEditable && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                      onClick={() => handleRemoveCaptain(team.id)}
+                                      disabled={assigningCaptain}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : team.captain ? (
+                                <div className="flex items-center gap-2 p-2 rounded-md border bg-yellow-500/5 border-yellow-500/20">
+                                  <Avatar className="w-6 h-6">
+                                    <AvatarImage src={team.captain.image} />
+                                    <AvatarFallback className="text-xs">
+                                      {team.captain.name.charAt(0).toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-sm font-medium flex-1">{team.captain.name}</span>
+                                  <Crown className="w-3.5 h-3.5 text-yellow-600" />
+                                </div>
+                              ) : isEditable ? (
+                                !showCaptainPicker ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs"
+                                    onClick={openCaptainPicker}
+                                  >
+                                    <Crown className="w-3 h-3 mr-1.5" />
+                                    Select a captain from player pool
+                                  </Button>
+                                ) : null
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">No captain assigned</p>
+                              )}
+
+                              {/* Inline captain picker */}
+                              {isEditable && showCaptainPicker && expandedTeamId === team.id && (
+                                <div className="mt-2 border rounded-md p-2 bg-card space-y-2">
+                                  <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                    <Input
+                                      placeholder="Search players..."
+                                      value={captainSearch}
+                                      onChange={(e) => setCaptainSearch(e.target.value)}
+                                      className="h-8 pl-8 text-xs"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                                    {loadingAllPlayers ? (
+                                      <div className="flex justify-center py-3">
+                                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                                      </div>
+                                    ) : (() => {
+                                      const filtered = allPlayers.filter(p =>
+                                        p.name.toLowerCase().includes(captainSearch.toLowerCase()) ||
+                                        p.playingRole.toLowerCase().includes(captainSearch.toLowerCase())
+                                      )
+                                      return filtered.length > 0 ? (
+                                        filtered.map(player => (
+                                          <button
+                                            key={player.id}
+                                            type="button"
+                                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-muted transition-colors"
+                                            onClick={() => handleAssignCaptain(team.id, player.id)}
+                                            disabled={assigningCaptain}
+                                          >
+                                            <Avatar className="w-5 h-5">
+                                              <AvatarImage src={player.image} />
+                                              <AvatarFallback className="text-[9px]">
+                                                {player.name.charAt(0).toUpperCase()}
+                                              </AvatarFallback>
+                                            </Avatar>
+                                            <span className="flex-1 truncate text-xs">{player.name}</span>
+                                            {player.tier && (
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded border" style={{ borderColor: player.tier.color, color: player.tier.color }}>
+                                                {player.tier.name}
+                                              </span>
+                                            )}
+                                          </button>
+                                        ))
+                                      ) : (
+                                        <p className="text-xs text-muted-foreground text-center py-3">
+                                          {captainSearch ? 'No players match' : 'No players in pool'}
+                                        </p>
+                                      )
+                                    })()}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full h-7 text-xs"
+                                    onClick={() => setShowCaptainPicker(false)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Pre-assigned Players */}
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                                Pre-assigned Players (optional)
+                              </label>
+                              {team.players && team.players.length > 0 && (
+                                <div className="space-y-1 mb-2">
+                                  {team.players.map(player => (
+                                    <div
+                                      key={player.id}
+                                      className="flex items-center gap-2 px-2 py-1 rounded border bg-card text-sm"
+                                    >
+                                      <span className="flex-1 truncate">{player.name}</span>
+                                      {player.tier && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded border" style={{ borderColor: player.tier.color, color: player.tier.color }}>
+                                          {player.tier.name}
+                                        </span>
+                                      )}
+                                      {isEditable && (
+                                        <button
+                                          type="button"
+                                          className="text-muted-foreground hover:text-destructive transition-colors"
+                                          onClick={() => handleRemovePlayer(team.id, player.id)}
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {isEditable && !showPlayerPicker && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={openPlayerPicker}
+                                >
+                                  <UserPlus className="w-3 h-3 mr-1.5" />
+                                  Add player from pool
+                                </Button>
+                              )}
+
+                              {/* Inline player picker */}
+                              {isEditable && showPlayerPicker && expandedTeamId === team.id && (
+                                <div className="mt-2 border rounded-md p-2 bg-card space-y-2">
+                                  <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                    <Input
+                                      placeholder="Search unassigned players..."
+                                      value={playerSearch}
+                                      onChange={(e) => setPlayerSearch(e.target.value)}
+                                      className="h-8 pl-8 text-xs"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                                    {loadingPlayers ? (
+                                      <div className="flex justify-center py-3">
+                                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                                      </div>
+                                    ) : (() => {
+                                      const filtered = availablePlayers.filter(p =>
+                                        p.name.toLowerCase().includes(playerSearch.toLowerCase()) ||
+                                        p.playingRole.toLowerCase().includes(playerSearch.toLowerCase())
+                                      )
+                                      return filtered.length > 0 ? (
+                                        filtered.map(player => (
+                                          <button
+                                            key={player.id}
+                                            type="button"
+                                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-muted transition-colors"
+                                            onClick={() => handleAssignPlayer(team.id, player.id)}
+                                          >
+                                            <span className="flex-1 truncate text-xs">{player.name}</span>
+                                            <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                                              {player.playingRole?.replace('_', ' ')}
+                                            </Badge>
+                                            {player.tier && (
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded border" style={{ borderColor: player.tier.color, color: player.tier.color }}>
+                                                {player.tier.name}
+                                              </span>
+                                            )}
+                                            <Plus className="w-3 h-3 text-muted-foreground" />
+                                          </button>
+                                        ))
+                                      ) : (
+                                        <p className="text-xs text-muted-foreground text-center py-3">
+                                          {playerSearch ? 'No players match' : 'No unassigned players. Import players first.'}
+                                        </p>
+                                      )
+                                    })()}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full h-7 text-xs"
+                                    onClick={() => setShowPlayerPicker(false)}
+                                  >
+                                    Done
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions row */}
+                            {isEditable && (
+                              <div className="flex items-center gap-2 pt-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs h-7"
+                                  onClick={() => window.open(`/admin/auctions/${auctionId}/teams/${team.id}/admins`, '_blank')}
+                                >
+                                  <Shield className="w-3 h-3 mr-1" />
+                                  Admins
+                                </Button>
+                                <div className="flex-1" />
+                                {isDeleting ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs text-destructive">Delete this team?</span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => setDeletingTeamId(null)}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => handleDelete(team)}
+                                      disabled={loading}
+                                    >
+                                      <Trash2 className="w-3 h-3 mr-1" />
+                                      Delete
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => setDeletingTeamId(team.id)}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    Delete
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                  {team.budgetRemaining !== undefined && team.budgetRemaining !== null && (
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      {team.budgetRemaining} coins
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-
-              <CardContent className="py-2">
-                <div className="space-y-3">
-                  {/* Captain */}
-                  {team.captain ? (
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarImage src={team.captain.image} />
-                        <AvatarFallback className="text-xs">
-                          {team.captain.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm">{team.captain.name}</span>
-                      <Crown className="w-3 h-3 text-yellow-600" />
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground italic">No captain assigned</p>
-                  )}
-
-                  {/* Pre-assigned players */}
-                  {team.players && team.players.length > 0 ? (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">
-                        Pre-assigned Players ({team.players.length})
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {team.players.slice(0, 5).map((player) => (
-                          <Badge key={player.id} variant="secondary" className="text-xs">
-                            {player.name}
-                          </Badge>
-                        ))}
-                        {team.players.length > 5 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{team.players.length - 5} more
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No pre-assigned players</p>
-                  )}
-                </div>
-              </CardContent>
-
-              {isEditable && (
-                <CardFooter className="pt-3 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEdit(team)}
-                  >
-                    <Edit className="w-3 h-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openPlayerAssign(team)}
-                  >
-                    <UserPlus className="w-3 h-3 mr-1" />
-                    Players
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => window.open(`/admin/auctions/${auctionId}/teams/${team.id}/admins`, '_blank')}
-                    title="Manage team administrators who can access the bidding interface"
-                  >
-                    <Shield className="w-3 h-3 mr-1" />
-                    Admins
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
-                    onClick={() => setDeleteTeam(team)}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </CardFooter>
-              )}
-            </Card>
-          ))}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
         </div>
       )}
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={(open) => { if (!open) { setCreateOpen(false); setForm(defaultForm) } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Team</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {teamFormFields}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setCreateOpen(false); setForm(defaultForm) }}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreate} disabled={loading || !form.name.trim()}>
-                {loading ? 'Saving...' : 'Create Team'}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) { setEditTeam(null); setForm(defaultForm) } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Team</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {teamFormFields}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setEditTeam(null); setForm(defaultForm) }}>
-                Cancel
-              </Button>
-              <Button onClick={handleEdit} disabled={loading || !form.name.trim()}>
-                {loading ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteTeam} onOpenChange={(open) => { if (!open) setDeleteTeam(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" />
-              Delete Team
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p>
-              Are you sure you want to delete <strong>{deleteTeam?.name}</strong>?
-            </p>
-            {deleteTeam?.players && deleteTeam.players.length > 0 && (
-              <p className="text-sm text-amber-600">
-                {deleteTeam.players.length} pre-assigned player{deleteTeam.players.length !== 1 ? 's' : ''} will be unassigned.
-              </p>
-            )}
-            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTeam(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={loading}>
-              {loading ? 'Deleting...' : 'Delete Team'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Player Assignment Dialog */}
-      <Dialog
-        open={!!playerAssignTeam}
-        onOpenChange={(open) => { if (!open) setPlayerAssignTeam(null) }}
-      >
-        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5" />
-              Manage Players - {playerAssignTeam?.name}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto space-y-4">
-            {/* Current players on this team */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">
-                Assigned Players ({playerAssignTeam?.players.length || 0})
-              </h4>
-              {playerAssignTeam?.players && playerAssignTeam.players.length > 0 ? (
-                <div className="space-y-1">
-                  {playerAssignTeam.players.map((player) => (
-                    <div
-                      key={player.id}
-                      className="flex items-center justify-between p-2 rounded border bg-success/10 border-success/30"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{player.name}</span>
-                        {player.tier && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs"
-                            style={{ borderColor: player.tier.color, color: player.tier.color }}
-                          >
-                            {player.tier.name}
-                          </Badge>
-                        )}
-                        <Badge variant="secondary" className="text-xs">
-                          {player.playingRole.replace('_', ' ')}
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleRemovePlayer(player.id)}
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground italic p-2">
-                  No players assigned yet. Add from the pool below.
+      {/* Budget Configuration */}
+      {isEditable && (
+        <Card className="bg-info/10 border-info/30">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-info-foreground text-sm">Budget per Team</h4>
+                <p className="text-xs text-info-foreground">
+                  How many coins each team starts with
                 </p>
-              )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={budgetPerTeam}
+                  onChange={(e) => setBudgetPerTeam(parseInt(e.target.value) || 0)}
+                  min="100"
+                  max="10000"
+                  step="50"
+                  className="w-24 h-8 text-center tabular-nums"
+                  disabled={updatingBudget}
+                />
+                <span className="text-xs text-info-foreground">coins</span>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  onClick={() => handleBudgetUpdate(budgetPerTeam)}
+                  disabled={updatingBudget || budgetPerTeam < 100 || budgetPerTeam > 10000}
+                >
+                  {updatingBudget ? 'Saving...' : 'Update'}
+                </Button>
+              </div>
             </div>
-
-            <Separator />
-
-            {/* Available players to assign */}
-            <div>
-              <h4 className="text-sm font-medium mb-2">
-                Available Players ({availablePlayers.length})
-              </h4>
-              {loadingPlayers ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
-                </div>
-              ) : availablePlayers.length > 0 ? (
-                <div className="space-y-1">
-                  {availablePlayers.map((player) => (
-                    <div
-                      key={player.id}
-                      className="flex items-center justify-between p-2 rounded border hover:bg-muted"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{player.name}</span>
-                        {player.tier && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs"
-                            style={{ borderColor: player.tier.color, color: player.tier.color }}
-                          >
-                            {player.tier.name}
-                          </Badge>
-                        )}
-                        <Badge variant="secondary" className="text-xs">
-                          {player.playingRole.replace('_', ' ')}
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => handleAssignPlayer(player.id)}
-                      >
-                        <Plus className="w-3 h-3 mr-1" />
-                        Add
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground italic p-2">
-                  No unassigned players in the auction pool. Import players first.
-                </p>
-              )}
+            <div className="mt-2 flex gap-1.5">
+              {[600, 1000, 1500].map(val => (
+                <Button
+                  key={val}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBudgetPerTeam(val)}
+                  className="text-xs h-7"
+                  disabled={updatingBudget}
+                >
+                  {val}
+                </Button>
+              ))}
             </div>
-          </div>
+          </CardContent>
+        </Card>
+      )}
 
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setPlayerAssignTeam(null)}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -112,17 +112,8 @@ export function PermissionAlert({
   action,
   className
 }: PermissionAlertProps) {
-  const getRoleColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'text-warning bg-warning/10 border-warning/30'
-      case 'MEMBER':
-        return 'text-muted-foreground bg-muted border-border'
-    }
-  }
-
   return (
-    <Alert className={`${getRoleColor(requiredRole)} ${className}`}>
+    <Alert className={`text-muted-foreground bg-muted border-border ${className}`}>
       <Shield className="h-4 w-4" />
       <AlertDescription>
         <span className="font-medium">{requiredRole} role required</span> to {action}.

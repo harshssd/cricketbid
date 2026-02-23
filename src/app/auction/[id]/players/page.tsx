@@ -33,7 +33,6 @@ interface Player {
   assignedTeam?: {
     id: string
     name: string
-    primaryColor: string
   }
 }
 
@@ -98,15 +97,6 @@ export default function AuctionPlayersPage() {
 
     return matchesSearch && matchesStatus && matchesTier && matchesRole
   })
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'AVAILABLE': return 'bg-primary/10 text-primary'
-      case 'SOLD': return 'bg-success/10 text-success'
-      case 'UNSOLD': return 'bg-destructive/10 text-destructive'
-      default: return 'bg-muted text-muted-foreground'
-    }
-  }
 
   const playersByStatus = {
     total: players.length,
@@ -336,9 +326,7 @@ export default function AuctionPlayersPage() {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Badge
-                      className={getStatusColor(player.status)}
-                    >
+                    <Badge variant="secondary">
                       {player.status}
                     </Badge>
                     <div className="flex items-center gap-1">
@@ -383,10 +371,7 @@ export default function AuctionPlayersPage() {
 
                   {player.assignedTeam && (
                     <div className="flex items-center gap-2 pt-2 border-t">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: player.assignedTeam.primaryColor }}
-                      />
+                      <div className="w-3 h-3 rounded-full bg-primary" />
                       <span className="text-sm font-medium">
                         {player.assignedTeam.name}
                       </span>

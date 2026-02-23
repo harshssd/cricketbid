@@ -139,22 +139,22 @@ setup_environment() {
 
     echo -e "${YELLOW}Setting Vercel environment variables...${NC}"
 
-    # Set all required environment variables
-    vercel env add NEXT_PUBLIC_SUPABASE_URL production <<< "$SUPABASE_URL"
-    vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY production <<< "$SUPABASE_ANON_KEY"
-    vercel env add SUPABASE_SERVICE_ROLE_KEY production <<< "$SUPABASE_SERVICE_ROLE_KEY"
-    vercel env add NEXTAUTH_URL production <<< "https://$DOMAIN"
-    vercel env add NEXTAUTH_SECRET production <<< "$NEXTAUTH_SECRET"
-    vercel env add NEXT_PUBLIC_APP_URL production <<< "https://$DOMAIN"
-    vercel env add NODE_ENV production <<< "production"
-    vercel env add LOG_LEVEL production <<< "info"
-    vercel env add RATE_LIMIT_MAX production <<< "100"
-    vercel env add RATE_LIMIT_WINDOW_MS production <<< "900000"
+    # Set all required environment variables (use printf to avoid trailing newline)
+    printf '%s' "$SUPABASE_URL" | vercel env add NEXT_PUBLIC_SUPABASE_URL production
+    printf '%s' "$SUPABASE_ANON_KEY" | vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY production
+    printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | vercel env add SUPABASE_SERVICE_ROLE_KEY production
+    printf '%s' "https://$DOMAIN" | vercel env add NEXTAUTH_URL production
+    printf '%s' "$NEXTAUTH_SECRET" | vercel env add NEXTAUTH_SECRET production
+    printf '%s' "https://$DOMAIN" | vercel env add NEXT_PUBLIC_APP_URL production
+    printf '%s' "production" | vercel env add NODE_ENV production
+    printf '%s' "info" | vercel env add LOG_LEVEL production
+    printf '%s' "100" | vercel env add RATE_LIMIT_MAX production
+    printf '%s' "900000" | vercel env add RATE_LIMIT_WINDOW_MS production
 
     # Ask for database URL
     echo -e "${YELLOW}Please enter your production DATABASE_URL:${NC}"
     read -s DATABASE_URL
-    vercel env add DATABASE_URL production <<< "$DATABASE_URL"
+    printf '%s' "$DATABASE_URL" | vercel env add DATABASE_URL production
 
     echo -e "${GREEN}✅ Environment variables set${NC}"
 

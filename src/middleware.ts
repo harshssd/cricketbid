@@ -103,8 +103,10 @@ function isPublicRoute(pathname: string): boolean {
     '/forgot-password',
     '/reset-password',
     '/live',
+    '/bid',
     '/api/health',
     '/api/auth',
+    '/api/bid',
   ]
 
   return publicPrefixes.some(prefix => pathname.startsWith(prefix)) ||

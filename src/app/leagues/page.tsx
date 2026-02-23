@@ -21,15 +21,13 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import { LeagueType, OrganizationRole, Visibility, LeagueStatus } from '@/lib/types'
+import { LeagueType, OrganizationRole, Visibility } from '@/lib/types'
 
 interface LeagueSummary {
   id: string
   name: string
   description?: string
   type: LeagueType
-  status: LeagueStatus
-  primaryColor: string
   visibility: Visibility
   memberCount: number
   auctionCount: number
@@ -37,24 +35,6 @@ interface LeagueSummary {
   isOwner: boolean
   createdAt: Date
   lastActivity?: Date
-}
-
-const LEAGUE_TYPE_COLORS: Record<LeagueType, string> = {
-  TOURNAMENT: 'bg-warning/10 text-warning',
-  LEAGUE: 'bg-info/10 text-info-foreground',
-  SEASONAL: 'bg-success/10 text-success',
-  CHAMPIONSHIP: 'bg-primary/10 text-primary',
-}
-
-const LEAGUE_STATUS_COLORS: Record<LeagueStatus, string> = {
-  PLANNED: 'bg-warning/10 text-warning',
-  ONGOING: 'bg-success/10 text-success',
-  COMPLETED: 'bg-muted text-muted-foreground',
-}
-
-const VISIBILITY_COLORS: Record<Visibility, string> = {
-  PUBLIC: 'bg-success/10 text-success',
-  PRIVATE: 'bg-destructive/10 text-destructive',
 }
 
 export default function LeaguesPage() {
@@ -113,8 +93,6 @@ export default function LeaguesPage() {
           name: league.name,
           description: league.description,
           type: league.type,
-          status: league.status || 'PLANNED',
-          primaryColor: league.primary_color,
           visibility: league.visibility,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
@@ -135,8 +113,6 @@ export default function LeaguesPage() {
           name: league.name,
           description: league.description,
           type: league.type,
-          status: league.status || 'PLANNED',
-          primaryColor: league.primary_color,
           visibility: league.visibility,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
@@ -176,24 +152,6 @@ export default function LeaguesPage() {
     }
 
     setFilteredLeagues(filtered)
-  }
-
-  const getRoleIcon = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return <Crown className="h-4 w-4 text-warning" />
-      case 'MEMBER':
-        return <Users className="h-4 w-4 text-muted-foreground" />
-    }
-  }
-
-  const getRoleBadgeColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'bg-warning/10 text-warning'
-      case 'MEMBER':
-        return 'bg-muted text-muted-foreground'
-    }
   }
 
   if (isLoading) {
@@ -340,8 +298,7 @@ export default function LeaguesPage() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-3">
                       <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-                        style={{ backgroundColor: league.primaryColor }}
+                        className="w-10 h-10 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground"
                       >
                         {league.name.charAt(0)}
                       </div>
@@ -363,18 +320,14 @@ export default function LeaguesPage() {
                   )}
 
                   <div className="flex flex-wrap gap-2 mb-4">
-                    <Badge className={LEAGUE_TYPE_COLORS[league.type]}>
+                    <Badge variant="secondary">
                       {league.type}
                     </Badge>
-                    <Badge className={LEAGUE_STATUS_COLORS[league.status]}>
-                      {league.status}
-                    </Badge>
-                    <Badge className={VISIBILITY_COLORS[league.visibility]}>
+                    <Badge variant="outline">
                       {league.visibility}
                     </Badge>
-                    <Badge className={getRoleBadgeColor(league.userRole)}>
-                      {getRoleIcon(league.userRole)}
-                      <span className="ml-1">{league.userRole}</span>
+                    <Badge variant="secondary">
+                      {league.userRole}
                     </Badge>
                   </div>
 

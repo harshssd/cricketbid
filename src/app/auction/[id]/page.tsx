@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,22 +15,24 @@ import {
   Users,
   Trophy,
   Play,
-  Settings,
   Upload,
-  Download,
   Trash2,
   Edit,
   Save,
   ArrowUp,
   ArrowDown,
   Shuffle,
-  Search
+  Search,
+  ChevronDown,
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
+  Merge,
+  Ungroup
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { auctionRealtimeManager, type AuctionState, type PlayerBid } from '@/lib/auction-realtime'
-import ViewConfigDialog from '@/components/view-config/ViewConfigDialog'
-import { useViewConfig } from '@/lib/view-config-manager'
 import { AuctionTeamManager } from '@/components/teams/AuctionTeamManager'
-import { UploadUserList } from '@/components/auction/UploadUserList'
 import { PlayerImport } from '@/components/auction/PlayerImport'
 
 // Extracted subcomponents
@@ -106,6 +108,69 @@ const DEFAULT_PLAYERS: Player[] = [
   { name: 'Suryakumar Yadav', tier: 3, basePrice: 30, note: null, playingRole: 'BATSMAN' }
 ]
 
+// Collapsible section card for the guided setup flow
+function SetupSection({
+  number,
+  title,
+  badge,
+  expanded,
+  onToggle,
+  collapsedSummary,
+  children
+}: {
+  number: number
+  title: string
+  badge?: string
+  expanded: boolean
+  onToggle: () => void
+  collapsedSummary?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <Card>
+      <button
+        type="button"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
+        onClick={onToggle}
+      >
+        <div className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${
+          badge ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'
+        }`}>
+          {badge ? <CheckCircle2 className="w-3.5 h-3.5" /> : number}
+        </div>
+        <span className="font-semibold text-sm flex-1">{title}</span>
+        {badge && (
+          <Badge variant="secondary" className="text-xs">{badge}</Badge>
+        )}
+        <motion.div
+          animate={{ rotate: expanded ? 180 : 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+        </motion.div>
+      </button>
+      {!expanded && collapsedSummary && (
+        <div className="px-4 pb-3">{collapsedSummary}</div>
+      )}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 border-t">
+              <div className="pt-4">{children}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Card>
+  )
+}
+
 export default function AuctionPage() {
   const params = useParams()
   const auctionId = params.id as string
@@ -126,17 +191,23 @@ export default function AuctionPage() {
   }
   const [newPlayerName, setNewPlayerName] = useState('')
   const [currentBids, setCurrentBids] = useState<Record<string, PlayerBid>>({})
+  const [roundBids, setRoundBids] = useState<Array<{ id: string; teamId: string; teamName: string; amount: number; submittedAt: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [uploadUserListOpen, setUploadUserListOpen] = useState(false)
-  const [showPlayerImport, setShowPlayerImport] = useState(false)
+  const [playerPoolExpanded, setPlayerPoolExpanded] = useState(true)
+  const [teamsExpanded, setTeamsExpanded] = useState(true)
+  const [settingsExpanded, setSettingsExpanded] = useState(true)
+  const [budgetPerTeam, setBudgetPerTeam] = useState<number>(1000)
   const [sellPrice, setSellPrice] = useState<number>(0)
   const [sellTeam, setSellTeam] = useState<string>('')
   const [apiTiers, setApiTiers] = useState<{ id: string; name: string; basePrice: number; color: string; sortOrder?: number }[]>([])
   const [apiPlayers, setApiPlayers] = useState<any[]>([])
   const [apiPlayerStats, setApiPlayerStats] = useState<any>(null)
-  const [shuffleMode, setShuffleMode] = useState<'random' | 'tier-ordered'>('random')
+  const [shuffleMode, setShuffleMode] = useState<'random' | 'tier-ordered' | 'custom-mix'>('random')
   const [tierOrder, setTierOrder] = useState<{ tierId: string; tierName: string; basePrice: number; position: number }[]>([])
+  // Custom mix: array of groups, each group is an array of tier IDs that get shuffled together
+  const [customMixGroups, setCustomMixGroups] = useState<{ tierIds: string[] }[]>([])
+  const [customMixInitialized, setCustomMixInitialized] = useState(false)
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
   const [editPlayerForm, setEditPlayerForm] = useState({
     name: '',
@@ -171,6 +242,79 @@ export default function AuctionPage() {
     }
   }, [apiTiers, tierOrder.length])
 
+  // Initialize custom mix groups: each tier starts as its own group
+  useEffect(() => {
+    if (apiTiers.length > 0 && !customMixInitialized) {
+      const sorted = [...apiTiers].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      setCustomMixGroups(sorted.map(t => ({ tierIds: [t.id] })))
+      setCustomMixInitialized(true)
+    }
+  }, [apiTiers, customMixInitialized])
+
+  const toggleTierInGroup = (groupIndex: number, tierId: string) => {
+    setCustomMixGroups(prev => {
+      const updated = prev.map(g => ({ tierIds: [...g.tierIds] }))
+      const currentGroup = updated[groupIndex]
+      if (currentGroup.tierIds.includes(tierId)) {
+        // Remove from this group - put it back as its own group
+        currentGroup.tierIds = currentGroup.tierIds.filter(id => id !== tierId)
+        // Find where to insert the solo group (after current group)
+        const insertAt = groupIndex + 1
+        updated.splice(insertAt, 0, { tierIds: [tierId] })
+        // Remove empty groups
+        return updated.filter(g => g.tierIds.length > 0)
+      } else {
+        // Merge: remove tier from its current group and add to this group
+        for (let i = 0; i < updated.length; i++) {
+          if (i !== groupIndex) {
+            updated[i].tierIds = updated[i].tierIds.filter(id => id !== tierId)
+          }
+        }
+        currentGroup.tierIds.push(tierId)
+        return updated.filter(g => g.tierIds.length > 0)
+      }
+    })
+  }
+
+  const moveGroup = (index: number, direction: 'up' | 'down') => {
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    setCustomMixGroups(prev => {
+      if (swapIndex < 0 || swapIndex >= prev.length) return prev
+      const updated = [...prev]
+      ;[updated[index], updated[swapIndex]] = [updated[swapIndex], updated[index]]
+      return updated
+    })
+  }
+
+  const mergeTierWithAbove = (groupIndex: number) => {
+    if (groupIndex === 0) return
+    setCustomMixGroups(prev => {
+      const updated = prev.map(g => ({ tierIds: [...g.tierIds] }))
+      updated[groupIndex - 1].tierIds.push(...updated[groupIndex].tierIds)
+      updated.splice(groupIndex, 1)
+      return updated
+    })
+  }
+
+  const splitGroup = (groupIndex: number) => {
+    setCustomMixGroups(prev => {
+      const group = prev[groupIndex]
+      if (group.tierIds.length <= 1) return prev
+      const updated = [...prev]
+      const soloGroups = group.tierIds.map(id => ({ tierIds: [id] }))
+      updated.splice(groupIndex, 1, ...soloGroups)
+      return updated
+    })
+  }
+
+  const getTierName = (tierId: string) => {
+    return apiTiers.find(t => t.id === tierId)?.name || 'Unknown'
+  }
+
+  const getTierColor = (tierId: string) => {
+    return apiTiers.find(t => t.id === tierId)?.color || '#888'
+  }
+
   const moveTierOrder = (index: number, direction: 'up' | 'down') => {
     const swapIndex = direction === 'up' ? index - 1 : index + 1
     if (swapIndex < 0 || swapIndex >= tierOrder.length) return
@@ -189,9 +333,6 @@ export default function AuctionPage() {
     }
     return shuffled
   }
-
-  // View configuration
-  const { config: viewConfig } = useViewConfig(auctionId, 'auctioneer')
 
   // Save auction runtime state to database
   const persistAuctionState = async (state: AuctionState) => {
@@ -218,6 +359,66 @@ export default function AuctionPage() {
     }
   }
 
+  // Fetch bids for the current open round
+  const fetchRoundBids = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/bids`)
+      if (res.ok) {
+        const data = await res.json()
+        setRoundBids(data.bids || [])
+      }
+    } catch (e) {
+      console.error('Failed to fetch round bids:', e)
+    }
+  }, [auctionId])
+
+  // Poll for bids every 2 seconds while auction is live
+  const bidPollRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    if (auction?.auctionStarted && activeTab === 'auction') {
+      fetchRoundBids()
+      bidPollRef.current = setInterval(fetchRoundBids, 2000)
+    }
+    return () => {
+      if (bidPollRef.current) clearInterval(bidPollRef.current)
+    }
+  }, [auction?.auctionStarted, activeTab, fetchRoundBids])
+
+  // Round lifecycle helpers (awaited before broadcast so bidders find the round in DB)
+  const openRound = async (playerName: string) => {
+    const player = apiPlayers.find((p: any) => p.name === playerName)
+    if (!player) {
+      console.warn('[openRound] Player not found in apiPlayers:', playerName)
+      return
+    }
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/round`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: player.id,
+          tierId: player.tier?.id || null,
+        }),
+      })
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        console.error('[openRound] Failed:', res.status, errBody)
+      }
+    } catch (e) {
+      console.error('[openRound] Network error:', e)
+    }
+  }
+
+  const closeRound = async () => {
+    try {
+      await fetch(`/api/auctions/${auctionId}/round`, {
+        method: 'DELETE',
+      })
+    } catch (e) {
+      console.error('Failed to close round:', e)
+    }
+  }
+
   useEffect(() => {
     if (!auctionId) {
       setLoading(false)
@@ -234,14 +435,56 @@ export default function AuctionPage() {
           const auctionData = await response.json()
           const persistedState = await loadPersistedState()
 
+          // Collect captain player names to exclude from auction
+          const captainPlayerIds = new Set(
+            (auctionData.teams || [])
+              .map((t: any) => t.captainPlayerId)
+              .filter(Boolean)
+          )
+          const captainPlayerNames = new Set(
+            (auctionData.teams || [])
+              .filter((t: any) => t.captainPlayer)
+              .map((t: any) => t.captainPlayer.name)
+          )
+
           let finalAuction: AuctionState
 
           if (persistedState && persistedState.auctionStarted && auctionData.status === 'LIVE') {
+            // Filter captain players from the persisted queue
+            let queue = persistedState.auctionQueue
+            let idx = persistedState.auctionIndex
+            if (captainPlayerNames.size > 0) {
+              const currentPlayerName = queue[idx]
+              queue = queue.filter((name: string) => !captainPlayerNames.has(name))
+              const newIdx = currentPlayerName ? queue.indexOf(currentPlayerName) : -1
+              idx = newIdx >= 0 ? newIdx : Math.min(idx, Math.max(0, queue.length - 1))
+            }
             finalAuction = {
               ...persistedState,
               name: auctionData.name,
+              auctionQueue: queue,
+              auctionIndex: idx,
             }
             setActiveTab('auction')
+
+            // Re-open round on page load if LIVE but no OPEN round exists
+            if (idx < queue.length && auctionData.players) {
+              const currentName = queue[idx]
+              const filteredPlayers = captainPlayerIds.size > 0
+                ? auctionData.players.filter((p: any) => !captainPlayerIds.has(p.id))
+                : auctionData.players
+              const currentApiPlayer = filteredPlayers.find((p: any) => p.name === currentName)
+              if (currentApiPlayer) {
+                fetch(`/api/auctions/${auctionId}/round`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    playerId: currentApiPlayer.id,
+                    tierId: currentApiPlayer.tier?.id || null,
+                  }),
+                }).catch(e => console.error('Failed to re-open round on load:', e))
+              }
+            }
           } else {
             finalAuction = {
               id: auctionData.id,
@@ -264,9 +507,30 @@ export default function AuctionPage() {
           }
 
           setAuction(finalAuction)
+
+          // Persist corrected state if we filtered captains from a live auction queue
+          if (captainPlayerNames.size > 0 && persistedState && persistedState.auctionStarted && auctionData.status === 'LIVE') {
+            persistAuctionState(finalAuction)
+          }
+
           if (auctionData.tiers) setApiTiers(auctionData.tiers)
-          if (auctionData.players) setApiPlayers(auctionData.players)
-          if (auctionData.playerStats) setApiPlayerStats(auctionData.playerStats)
+          if (auctionData.players) {
+            const filteredPlayers = captainPlayerIds.size > 0
+              ? auctionData.players.filter((p: any) => !captainPlayerIds.has(p.id))
+              : auctionData.players
+            setApiPlayers(filteredPlayers)
+            if (filteredPlayers.length > 0) setPlayerPoolExpanded(false)
+          }
+          if (auctionData.playerStats) {
+            // Adjust player stats to exclude captain players
+            const captainCount = captainPlayerIds.size
+            setApiPlayerStats({
+              ...auctionData.playerStats,
+              total: auctionData.playerStats.total - captainCount,
+              available: auctionData.playerStats.available - captainCount,
+            })
+          }
+          if (auctionData.budgetPerTeam) setBudgetPerTeam(auctionData.budgetPerTeam)
           setLoading(false)
         } else {
           if (response.status === 404) {
@@ -289,6 +553,11 @@ export default function AuctionPage() {
     auctionRealtimeManager.subscribeToAuction(auctionId)
     auctionRealtimeManager.onAuctionStateChange(setAuction)
     auctionRealtimeManager.onBidsChange(setCurrentBids)
+    auctionRealtimeManager.onBidUpdate((payload) => {
+      console.log(`Bid update: ${payload.teamName} bid ${payload.amount} on round ${payload.roundId}`)
+      // Fetch latest bids from database
+      fetchRoundBids()
+    })
 
     return () => {
       auctionRealtimeManager.unsubscribe()
@@ -339,6 +608,30 @@ export default function AuctionPage() {
       if (playersWithoutTier.length > 0) {
         auctionQueue.push(...fisherYatesShuffle(playersWithoutTier))
       }
+    } else if (shuffleMode === 'custom-mix' && apiPlayers.length > 0 && customMixGroups.length > 0) {
+      // Group players by tier
+      const playersByTier = new Map<string, string[]>()
+      for (const player of apiPlayers) {
+        const tierId = player.tier?.id
+        if (!tierId) continue
+        if (!playersByTier.has(tierId)) playersByTier.set(tierId, [])
+        playersByTier.get(tierId)!.push(player.name)
+      }
+      const playersWithoutTier = apiPlayers.filter((p: any) => !p.tier?.id).map((p: any) => p.name)
+
+      auctionQueue = []
+      for (const group of customMixGroups) {
+        // Collect all players from all tiers in this group
+        const groupPlayers: string[] = []
+        for (const tierId of group.tierIds) {
+          groupPlayers.push(...(playersByTier.get(tierId) || []))
+        }
+        // Shuffle all players in this group together
+        auctionQueue.push(...fisherYatesShuffle(groupPlayers))
+      }
+      if (playersWithoutTier.length > 0) {
+        auctionQueue.push(...fisherYatesShuffle(playersWithoutTier))
+      }
     } else {
       const playerNames = apiPlayers.length > 0
         ? apiPlayers.map((p: any) => p.name)
@@ -356,6 +649,12 @@ export default function AuctionPage() {
     setAuction(updatedAuction)
     setActiveTab('auction')
 
+    // Open the first round in the database BEFORE setting status to LIVE
+    // so bidders polling won't see LIVE with no round yet
+    if (auctionQueue.length > 0) {
+      await openRound(auctionQueue[0])
+    }
+
     try {
       await fetch(`/api/auctions/${auctionId}/state`, {
         method: 'PUT',
@@ -372,10 +671,47 @@ export default function AuctionPage() {
   // --- Auction action handlers ---
   const currentPlayerName = auction?.auctionQueue?.[auction?.auctionIndex ?? 0] ?? ''
 
-  const handleSold = () => {
+  const handleSold = async () => {
     if (!auction || !sellTeam) return
     const playerName = auction.auctionQueue[auction.auctionIndex]
     const price = sellPrice || getPlayerInfo(playerName).basePrice
+
+    // Look up player and team IDs for the sold API
+    const soldPlayer = apiPlayers.find((p: any) => p.name === playerName)
+    // Find teamId from roundBids or look up from API data
+    const matchingBid = roundBids.find(b => b.teamName === sellTeam)
+    let soldTeamId = matchingBid?.teamId
+
+    // If no matching bid (manual selection), fetch team ID
+    if (!soldTeamId && soldPlayer) {
+      try {
+        const teamsRes = await fetch(`/api/auctions/${auctionId}`)
+        if (teamsRes.ok) {
+          const data = await teamsRes.json()
+          const matchedTeam = data.teams?.find((t: any) => t.name === sellTeam)
+          soldTeamId = matchedTeam?.id
+        }
+      } catch (e) {
+        console.error('Failed to look up team ID:', e)
+      }
+    }
+
+    // Record sale in database (auction_result + player status + budget)
+    if (soldPlayer && soldTeamId) {
+      try {
+        await fetch(`/api/auctions/${auctionId}/sold`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerId: soldPlayer.id,
+            teamId: soldTeamId,
+            amount: price,
+          }),
+        })
+      } catch (e) {
+        console.error('Failed to record sale:', e)
+      }
+    }
 
     const updatedTeams = auction.teams.map(team => {
       if (team.name === sellTeam) {
@@ -398,12 +734,21 @@ export default function AuctionPage() {
     }
 
     setAuction(updatedAuction)
-    saveAuction(updatedAuction)
     setSellTeam('')
     setSellPrice(0)
+    setRoundBids([])
+
+    // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
+    await closeRound()
+    const nextIndex = auction.auctionIndex + 1
+    if (nextIndex < auction.auctionQueue.length) {
+      await openRound(auction.auctionQueue[nextIndex])
+    }
+
+    saveAuction(updatedAuction)
   }
 
-  const handleUnsold = () => {
+  const handleUnsold = async () => {
     if (!auction) return
     const playerName = auction.auctionQueue[auction.auctionIndex]
 
@@ -416,10 +761,19 @@ export default function AuctionPage() {
     }
 
     setAuction(updatedAuction)
+    setRoundBids([])
+
+    // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
+    await closeRound()
+    const nextIndex = auction.auctionIndex + 1
+    if (nextIndex < auction.auctionQueue.length) {
+      await openRound(auction.auctionQueue[nextIndex])
+    }
+
     saveAuction(updatedAuction)
   }
 
-  const handleDefer = () => {
+  const handleDefer = async () => {
     if (!auction) return
     const playerName = auction.auctionQueue[auction.auctionIndex]
 
@@ -436,10 +790,18 @@ export default function AuctionPage() {
     }
 
     setAuction(updatedAuction)
+    setRoundBids([])
+
+    // Close round, open for new current player — BEFORE broadcasting so bidders find the round in DB
+    await closeRound()
+    if (auction.auctionIndex < newQueue.length) {
+      await openRound(newQueue[auction.auctionIndex])
+    }
+
     saveAuction(updatedAuction)
   }
 
-  const handleUndoLast = () => {
+  const handleUndoLast = async () => {
     if (!auction || auction.auctionHistory.length === 0) return
     const lastAction = auction.auctionHistory[auction.auctionHistory.length - 1]
     const newHistory = auction.auctionHistory.slice(0, -1)
@@ -489,6 +851,15 @@ export default function AuctionPage() {
     }
 
     setAuction(updatedAuction)
+    setRoundBids([])
+
+    // Close current round, open for restored player — BEFORE broadcasting so bidders find the round in DB
+    await closeRound()
+    const restoredIndex = updatedAuction.auctionIndex
+    if (restoredIndex < updatedAuction.auctionQueue.length) {
+      await openRound(updatedAuction.auctionQueue[restoredIndex])
+    }
+
     saveAuction(updatedAuction)
   }
 
@@ -668,6 +1039,9 @@ export default function AuctionPage() {
     )
   }
 
+  // Filter apiPlayers for display: exclude sold players (captains already removed from apiPlayers)
+  const poolPlayers = apiPlayers.filter(p => !auction.soldPlayers?.[p.name])
+
   return (
     <div className="min-h-screen bg-muted">
       {/* Header */}
@@ -677,24 +1051,12 @@ export default function AuctionPage() {
             <div>
               <h1 className="text-2xl font-bold text-foreground">{auction.name}</h1>
               <p className="text-sm text-muted-foreground">
-                {auction.teams.length} teams • {apiPlayers.length > 0 ? apiPlayers.length : players.length} players
+                {auction.teams.length} teams • {poolPlayers.length > 0 ? poolPlayers.length : players.length} players
               </p>
             </div>
-            <div className="flex items-center space-x-4">
-              <Badge variant={auction.auctionStarted ? 'default' : 'secondary'}>
-                {auction.auctionStarted ? 'Live' : 'Setup'}
-              </Badge>
-              {!auction.auctionStarted && (
-                <Button
-                  onClick={handleStartAuction}
-                  disabled={auction.teams.length < 2}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Auction
-                </Button>
-              )}
-            </div>
+            <Badge variant={auction.auctionStarted ? 'default' : 'secondary'}>
+              {auction.auctionStarted ? 'Live' : 'Setup'}
+            </Badge>
           </div>
         </div>
       </div>
@@ -705,247 +1067,404 @@ export default function AuctionPage() {
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="setup">Setup</TabsTrigger>
             <TabsTrigger value="players">Players</TabsTrigger>
-            <TabsTrigger value="auction" disabled={!auction.auctionStarted}>Auction</TabsTrigger>
+            <TabsTrigger value="auction">Auction</TabsTrigger>
             <TabsTrigger value="teams">Teams</TabsTrigger>
           </TabsList>
 
-          {/* Setup Tab */}
-          <TabsContent value="setup" className="space-y-6">
-            {/* Team Management */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Users className="h-5 w-5" />
-                  <span>Team Management</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AuctionTeamManager
-                  auctionId={auctionId}
-                  auctionName={auction.name}
-                  availableMembers={(auction as any).participations?.map((p: any) => ({
-                    id: p.user.id,
-                    name: p.user.name,
-                    email: p.user.email,
-                    image: p.user.image
-                  })) || []}
-                  onTeamChange={async () => {
-                    try {
-                      const response = await fetch(`/api/auctions/${auctionId}`)
+          {/* Setup Tab — Guided vertical sections */}
+          <TabsContent value="setup" className="space-y-4">
+            {/* Section 1: Player Pool */}
+            <SetupSection
+              number={1}
+              title="Player Pool"
+              badge={poolPlayers.length > 0 ? `${poolPlayers.length} players` : undefined}
+              expanded={playerPoolExpanded}
+              onToggle={() => setPlayerPoolExpanded(!playerPoolExpanded)}
+              collapsedSummary={poolPlayers.length > 0 ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {apiTiers.map(tier => {
+                    const count = poolPlayers.filter((p: any) => p.tier?.id === tier.id).length
+                    if (count === 0) return null
+                    return (
+                      <Badge key={tier.id} variant="outline" className="text-xs" style={{ borderColor: tier.color, color: tier.color }}>
+                        {tier.name}: {count}
+                      </Badge>
+                    )
+                  })}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-6 ml-auto"
+                    onClick={(e) => { e.stopPropagation(); setPlayerPoolExpanded(true) }}
+                  >
+                    <Upload className="h-3 w-3 mr-1" />
+                    Re-import
+                  </Button>
+                </div>
+              ) : undefined}
+            >
+              <PlayerImport
+                auctionId={auctionId}
+                tiers={apiTiers}
+                existingPlayers={apiPlayers.length}
+                onImportComplete={async () => {
+                  try {
+                    const response = await fetch(`/api/auctions/${auctionId}`)
+                    if (response.ok) {
                       const data = await response.json()
-                      const transformedAuction: AuctionState = {
-                        id: data.id,
-                        name: data.name,
-                        teams: data.teams?.map((team: any) => ({
-                          name: team.name,
-                          coins: team.budgetRemaining || data.budgetPerTeam,
-                          originalCoins: data.budgetPerTeam,
-                          players: team.players?.map((p: any) => ({ name: p.name, price: 0 })) || []
-                        })) || [],
-                        auctionQueue: auction.auctionQueue || [],
-                        auctionIndex: auction.auctionIndex || 0,
-                        auctionStarted: auction.auctionStarted,
-                        soldPlayers: auction.soldPlayers || {},
-                        unsoldPlayers: auction.unsoldPlayers || [],
-                        deferredPlayers: auction.deferredPlayers || [],
-                        auctionHistory: auction.auctionHistory || [],
-                        lastUpdated: new Date().toISOString()
+                      if (data.tiers) setApiTiers(data.tiers)
+                      if (data.players) {
+                        const cIds = new Set(
+                          (data.teams || []).map((t: any) => t.captainPlayerId).filter(Boolean)
+                        )
+                        setApiPlayers(cIds.size > 0
+                          ? data.players.filter((p: any) => !cIds.has(p.id))
+                          : data.players
+                        )
                       }
-                      setAuction(transformedAuction)
-                      auctionRealtimeManager.broadcastAuctionState(transformedAuction)
-                    } catch (error) {
-                      console.error('Failed to reload auction data:', error)
-                    }
-                  }}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Share Links — compact version */}
-            <ShareLinksPanel auctionId={auctionId} auctionName={auction.name} />
-
-            {/* View Configuration */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Settings className="h-5 w-5" />
-                  <span>View Settings</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Customize what information is displayed for each type of user (Auctioneer, Captains, Public)
-                </p>
-                <ViewConfigDialog auctionId={auctionId} />
-              </CardContent>
-            </Card>
-
-            {/* User Management */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Users className="h-5 w-5" />
-                  <span>User Management</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Button variant="outline" className="h-20 flex-col">
-                    <Users className="h-6 w-6 mb-2" />
-                    <span className="font-medium">Invite Captains</span>
-                    <span className="text-xs text-muted-foreground">Send email invitations</span>
-                  </Button>
-                  <Button variant="outline" className="h-20 flex-col" onClick={() => setUploadUserListOpen(true)}>
-                    <Upload className="h-6 w-6 mb-2" />
-                    <span className="font-medium">Upload User List</span>
-                    <span className="text-xs text-muted-foreground">CSV with emails</span>
-                  </Button>
-                  <Button variant="outline" className="h-20 flex-col">
-                    <Download className="h-6 w-6 mb-2" />
-                    <span className="font-medium">Import from League</span>
-                    <span className="text-xs text-muted-foreground">League members</span>
-                  </Button>
-                  <Button variant="outline" className="h-20 flex-col">
-                    <Settings className="h-6 w-6 mb-2" />
-                    <span className="font-medium">Manage Roles</span>
-                    <span className="text-xs text-muted-foreground">Set permissions</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Auction History */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Auction History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8 text-muted-foreground">
-                  <Trophy className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>Previous auctions will appear here</p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Players Tab */}
-          <TabsContent value="players" className="space-y-6">
-            {showPlayerImport ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Import Players</h2>
-                  <Button variant="outline" onClick={() => setShowPlayerImport(false)}>
-                    Back to Player Pool
-                  </Button>
-                </div>
-                <PlayerImport
-                  auctionId={auctionId}
-                  tiers={apiTiers}
-                  existingPlayers={apiPlayers.length}
-                  onImportComplete={async () => {
-                    try {
-                      const response = await fetch(`/api/auctions/${auctionId}`)
-                      if (response.ok) {
-                        const data = await response.json()
-                        if (data.tiers) setApiTiers(data.tiers)
-                        if (data.players) setApiPlayers(data.players)
-                        if (data.playerStats) setApiPlayerStats(data.playerStats)
+                      if (data.playerStats) {
+                        const cCount = (data.teams || []).filter((t: any) => t.captainPlayerId).length
+                        setApiPlayerStats({
+                          ...data.playerStats,
+                          total: data.playerStats.total - cCount,
+                          available: data.playerStats.available - cCount,
+                        })
                       }
-                    } catch (e) {
-                      console.error('Failed to reload players:', e)
                     }
-                    setShowPlayerImport(false)
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                {/* Tier Stats */}
-                {apiTiers.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {apiTiers.map((tier) => {
-                      const count = apiPlayers.filter((p: any) => p.tier?.id === tier.id).length
-                      return (
-                        <Card key={tier.id}>
-                          <CardContent className="p-4 text-center">
-                            <div className="text-2xl font-bold" style={{ color: tier.color }}>{tier.name}</div>
-                            <div className="text-sm text-muted-foreground">{count} players</div>
-                            <div className="text-xs text-muted-foreground tabular-nums">Base: {tier.basePrice}</div>
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
+                  } catch (e) {
+                    console.error('Failed to reload players:', e)
+                  }
+                  setPlayerPoolExpanded(false)
+                }}
+              />
+            </SetupSection>
+
+            {/* Section 2: Teams */}
+            <SetupSection
+              number={2}
+              title="Teams"
+              badge={auction.teams.length > 0 ? `${auction.teams.length} teams` : undefined}
+              expanded={teamsExpanded}
+              onToggle={() => setTeamsExpanded(!teamsExpanded)}
+            >
+              <AuctionTeamManager
+                auctionId={auctionId}
+                auctionName={auction.name}
+                availableMembers={(auction as any).participations?.map((p: any) => ({
+                  id: p.user.id,
+                  name: p.user.name,
+                  email: p.user.email,
+                  image: p.user.image
+                })) || []}
+                onTeamChange={async () => {
+                  try {
+                    const response = await fetch(`/api/auctions/${auctionId}`)
+                    const data = await response.json()
+                    const transformedAuction: AuctionState = {
+                      id: data.id,
+                      name: data.name,
+                      teams: data.teams?.map((team: any) => ({
+                        name: team.name,
+                        coins: team.budgetRemaining || data.budgetPerTeam,
+                        originalCoins: data.budgetPerTeam,
+                        players: team.players?.map((p: any) => ({ name: p.name, price: 0 })) || []
+                      })) || [],
+                      auctionQueue: auction.auctionQueue || [],
+                      auctionIndex: auction.auctionIndex || 0,
+                      auctionStarted: auction.auctionStarted,
+                      soldPlayers: auction.soldPlayers || {},
+                      unsoldPlayers: auction.unsoldPlayers || [],
+                      deferredPlayers: auction.deferredPlayers || [],
+                      auctionHistory: auction.auctionHistory || [],
+                      lastUpdated: new Date().toISOString()
+                    }
+                    setAuction(transformedAuction)
+                    if (data.budgetPerTeam) setBudgetPerTeam(data.budgetPerTeam)
+                    auctionRealtimeManager.broadcastAuctionState(transformedAuction)
+
+                    // Re-filter apiPlayers to exclude newly assigned captains
+                    const newCaptainIds = new Set(
+                      (data.teams || []).map((t: any) => t.captainPlayerId).filter(Boolean)
+                    )
+                    if (newCaptainIds.size > 0) {
+                      setApiPlayers(prev => {
+                        const filtered = prev.filter(p => !newCaptainIds.has(p.id))
+                        const removed = prev.length - filtered.length
+                        if (removed > 0) {
+                          setApiPlayerStats((prevStats: any) => prevStats ? {
+                            ...prevStats,
+                            total: prevStats.total - removed,
+                            available: prevStats.available - removed,
+                          } : null)
+                        }
+                        return filtered
+                      })
+                    }
+                  } catch (error) {
+                    console.error('Failed to reload auction data:', error)
+                  }
+                }}
+              />
+            </SetupSection>
+
+            {/* Section 3: Auction Settings */}
+            <SetupSection
+              number={3}
+              title="Auction Settings"
+              expanded={settingsExpanded}
+              onToggle={() => setSettingsExpanded(!settingsExpanded)}
+            >
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium">Player Order</h3>
+                  <div className="space-y-2">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="radio" name="shuffleMode" value="random" checked={shuffleMode === 'random'}
+                        onChange={() => setShuffleMode('random')} className="h-4 w-4 text-primary" />
+                      <div className="flex items-center space-x-2">
+                        <Shuffle className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Fully Random</span>
+                      </div>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="radio" name="shuffleMode" value="tier-ordered" checked={shuffleMode === 'tier-ordered'}
+                        onChange={() => setShuffleMode('tier-ordered')} disabled={apiTiers.length === 0} className="h-4 w-4 text-primary" />
+                      <div className="flex items-center space-x-2">
+                        <ArrowDown className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">By Tier Order</span>
+                      </div>
+                    </label>
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="radio" name="shuffleMode" value="custom-mix" checked={shuffleMode === 'custom-mix'}
+                        onChange={() => setShuffleMode('custom-mix')} disabled={apiTiers.length === 0} className="h-4 w-4 text-primary" />
+                      <div className="flex items-center space-x-2">
+                        <Layers className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Custom Mix</span>
+                      </div>
+                    </label>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-4">
-                    {[
-                      { name: 'Tier 0', color: 'text-yellow-600', base: 120, key: 'tier0' },
-                      { name: 'Tier 1', color: 'text-orange-600', base: 90, key: 'tier1' },
-                      { name: 'Tier 2', color: 'text-blue-600', base: 60, key: 'tier2' },
-                      { name: 'Tier 3', color: 'text-green-600', base: 30, key: 'tier3' },
-                    ].map((t) => (
-                      <Card key={t.key}>
-                        <CardContent className="p-4 text-center">
-                          <div className={`text-2xl font-bold ${t.color}`}>{t.name}</div>
-                          <div className="text-sm text-muted-foreground">{tierStats[t.key] || 0} players</div>
-                          <div className="text-xs text-muted-foreground tabular-nums">Base: {t.base}</div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                </div>
+
+                {shuffleMode === 'tier-ordered' && tierOrder.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium">Tier Order</h3>
+                    <div className="border rounded-lg divide-y">
+                      {tierOrder.map((tier, index) => {
+                        const playerCount = apiPlayers.filter((p: any) => p.tier?.id === tier.tierId).length
+                        return (
+                          <div key={tier.tierId} className="flex items-center justify-between px-3 py-2">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-xs font-mono text-muted-foreground w-5">{index + 1}.</span>
+                              <span className="text-sm font-medium">{tier.tierName}</span>
+                              <Badge variant="secondary" className="text-xs tabular-nums">{tier.basePrice}</Badge>
+                              <Badge variant="outline" className="text-xs">{playerCount} players</Badge>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={index === 0}
+                                onClick={() => moveTierOrder(index, 'up')}>
+                                <ArrowUp className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={index === tierOrder.length - 1}
+                                onClick={() => moveTierOrder(index, 'down')}>
+                                <ArrowDown className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Players within each tier are shuffled randomly</p>
                   </div>
                 )}
 
-                {/* Player Pool */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Player Pool ({apiPlayers.length > 0 ? apiPlayers.length : players.length})</span>
-                      <div className="flex items-center space-x-2">
-                        {apiPlayers.length === 0 && players.length === 0 && (
-                          <Button variant="outline" size="sm" onClick={() => setPlayers(DEFAULT_PLAYERS)}>
-                            <Users className="h-4 w-4 mr-2" />
-                            Load Demo Players
-                          </Button>
-                        )}
-                        {players.length > 0 && (
-                          <Button variant="outline" size="sm" onClick={() => setPlayers([])}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Clear Demo Players
-                          </Button>
-                        )}
-                        {(apiPlayers.length > 0 || players.length > 0) && players.length === 0 && (
-                          <Button variant="outline" size="sm" onClick={() => setPlayers(DEFAULT_PLAYERS)}>
-                            <Users className="h-4 w-4 mr-2" />
-                            Add Demo Players
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => setShowPlayerImport(true)}>
-                          <Upload className="h-4 w-4 mr-2" />
-                          Upload CSV
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setShowPlayerImport(true)}>
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Player
-                        </Button>
-                      </div>
-                    </CardTitle>
-                    {(apiPlayers.length > 0 || players.length > 0) && (
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                        <Input
-                          placeholder="Search players..."
-                          className="pl-9"
-                          value={playerSearchTerm}
-                          onChange={(e) => setPlayerSearchTerm(e.target.value)}
-                        />
-                      </div>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    {apiPlayers.length > 0 ? (
-                      (() => {
-                        const hasResults = apiTiers.some((tier) => {
-                          let tierPlayers = apiPlayers.filter((p: any) => p.tier?.id === tier.id)
+                {shuffleMode === 'custom-mix' && customMixGroups.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium">Mix & Match Tiers</h3>
+                    <p className="text-xs text-muted-foreground">Merge tiers to shuffle them together. Groups are auctioned in order, top to bottom.</p>
+                    <div className="space-y-2">
+                      {customMixGroups.map((group, groupIndex) => {
+                        const groupPlayerCount = group.tierIds.reduce((sum, tierId) =>
+                          sum + apiPlayers.filter((p: any) => p.tier?.id === tierId).length, 0)
+                        return (
+                          <div key={groupIndex} className="border rounded-lg overflow-hidden">
+                            <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
+                              <div className="flex items-center space-x-3">
+                                <span className="text-xs font-mono text-muted-foreground w-5">{groupIndex + 1}.</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {group.tierIds.map(tierId => (
+                                    <Badge
+                                      key={tierId}
+                                      className="text-xs"
+                                      style={{ backgroundColor: getTierColor(tierId) + '20', color: getTierColor(tierId), borderColor: getTierColor(tierId) + '40' }}
+                                    >
+                                      {getTierName(tierId)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                                <Badge variant="outline" className="text-xs">{groupPlayerCount} players</Badge>
+                                {group.tierIds.length > 1 && (
+                                  <span className="text-xs text-muted-foreground italic">shuffled together</span>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-1">
+                                {groupIndex > 0 && (
+                                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" title="Merge with group above"
+                                    onClick={() => mergeTierWithAbove(groupIndex)}>
+                                    <Merge className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                {group.tierIds.length > 1 && (
+                                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" title="Split into separate groups"
+                                    onClick={() => splitGroup(groupIndex)}>
+                                    <Ungroup className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={groupIndex === 0}
+                                  onClick={() => moveGroup(groupIndex, 'up')}>
+                                  <ArrowUp className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={groupIndex === customMixGroups.length - 1}
+                                  onClick={() => moveGroup(groupIndex, 'down')}>
+                                  <ArrowDown className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Use <Merge className="h-3 w-3 inline" /> to merge a group with the one above it. Use <Ungroup className="h-3 w-3 inline" /> to split merged groups apart. Deferred players go to the end.</p>
+                  </div>
+                )}
+              </div>
+            </SetupSection>
+
+            {/* Start Auction Banner */}
+            {!auction.auctionStarted && (
+              <Card className="border-green-500/20 bg-gradient-to-r from-green-500/5 to-transparent">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold flex items-center gap-2">
+                        <Trophy className="h-4 w-4" />
+                        Start Auction
+                      </h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {auction.teams.length} team{auction.teams.length !== 1 ? 's' : ''} · {poolPlayers.length > 0 ? poolPlayers.length : players.length} players · Budget: {budgetPerTeam}/team
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleStartAuction}
+                      disabled={auction.teams.length < 2 || (apiPlayers.length === 0 && players.length === 0)}
+                      className="bg-green-600 hover:bg-green-700"
+                      size="lg"
+                    >
+                      <Play className="h-4 w-4 mr-2" />
+                      Start Auction
+                    </Button>
+                  </div>
+                  {auction.teams.length < 2 && (
+                    <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Need at least 2 teams to start the auction
+                    </p>
+                  )}
+                  {auction.teams.length >= 2 && apiPlayers.length === 0 && players.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Import players to the player pool before starting
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+          </TabsContent>
+
+          {/* Players Tab — Read-only pool browser */}
+          <TabsContent value="players" className="space-y-6">
+            {/* Tier Stats */}
+            {apiTiers.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {apiTiers.map((tier) => {
+                  const count = poolPlayers.filter((p: any) => p.tier?.id === tier.id).length
+                  return (
+                    <Card key={tier.id}>
+                      <CardContent className="p-4 text-center">
+                        <div className="text-2xl font-bold" style={{ color: tier.color }}>{tier.name}</div>
+                        <div className="text-sm text-muted-foreground">{count} players</div>
+                        <div className="text-xs text-muted-foreground tabular-nums">Base: {tier.basePrice}</div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-4">
+                {[
+                  { name: 'Tier 0', color: 'text-yellow-600', base: 120, key: 'tier0' },
+                  { name: 'Tier 1', color: 'text-orange-600', base: 90, key: 'tier1' },
+                  { name: 'Tier 2', color: 'text-blue-600', base: 60, key: 'tier2' },
+                  { name: 'Tier 3', color: 'text-green-600', base: 30, key: 'tier3' },
+                ].map((t) => (
+                  <Card key={t.key}>
+                    <CardContent className="p-4 text-center">
+                      <div className={`text-2xl font-bold ${t.color}`}>{t.name}</div>
+                      <div className="text-sm text-muted-foreground">{tierStats[t.key] || 0} players</div>
+                      <div className="text-xs text-muted-foreground tabular-nums">Base: {t.base}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Player Pool */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Player Pool ({poolPlayers.length > 0 ? poolPlayers.length : players.length})</span>
+                </CardTitle>
+                {(poolPlayers.length > 0 || players.length > 0) && (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search players..."
+                      className="pl-9"
+                      value={playerSearchTerm}
+                      onChange={(e) => setPlayerSearchTerm(e.target.value)}
+                    />
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                {poolPlayers.length > 0 ? (
+                  (() => {
+                    const hasResults = apiTiers.some((tier) => {
+                      let tierPlayers = poolPlayers.filter((p: any) => p.tier?.id === tier.id)
+                      if (playerSearchTerm.trim()) {
+                        tierPlayers = tierPlayers.filter((p: any) =>
+                          p.name?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
+                          p.playingRole?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
+                          p.customTags?.toLowerCase().includes(playerSearchTerm.toLowerCase())
+                        )
+                      }
+                      return tierPlayers.length > 0
+                    })
+
+                    if (!hasResults && playerSearchTerm.trim()) {
+                      return (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium mb-2">No players found</p>
+                          <p className="text-sm">Try searching with a different term</p>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {apiTiers.map((tier) => {
+                          let tierPlayers = poolPlayers.filter((p: any) => p.tier?.id === tier.id)
                           if (playerSearchTerm.trim()) {
                             tierPlayers = tierPlayers.filter((p: any) =>
                               p.name?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
@@ -953,69 +1472,69 @@ export default function AuctionPage() {
                               p.customTags?.toLowerCase().includes(playerSearchTerm.toLowerCase())
                             )
                           }
-                          return tierPlayers.length > 0
-                        })
-
-                        if (!hasResults && playerSearchTerm.trim()) {
+                          if (tierPlayers.length === 0) return null
                           return (
-                            <div className="text-center py-12 text-muted-foreground">
-                              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                              <p className="text-lg font-medium mb-2">No players found</p>
-                              <p className="text-sm">Try searching with a different term</p>
+                            <div key={tier.id}>
+                              <h3 className="font-medium mb-2 flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tier.color }} />
+                                {tier.name}
+                                <span className="text-xs text-muted-foreground">({tierPlayers.length} players, base: {tier.basePrice})</span>
+                              </h3>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {tierPlayers.map((player: any) => (
+                                  <div key={player.id} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
+                                       onClick={() => handleEditApiPlayer(player)}>
+                                    <div className="min-w-0">
+                                      <div className="font-medium truncate">{player.name}</div>
+                                      <div className="flex flex-wrap gap-1 mt-0.5">
+                                        {player.playingRole && (
+                                          <Badge variant="secondary" className="text-xs">{player.playingRole.replace('_', ' ')}</Badge>
+                                        )}
+                                        {player.customTags && player.customTags.split(',').slice(0, 2).map((tag: string, i: number) => (
+                                          <Badge key={i} variant="outline" className="text-xs">{tag.trim()}</Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <div className="text-sm text-muted-foreground mr-2 tabular-nums">{tier.basePrice}</div>
+                                      <Edit className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )
-                        }
-
-                        return (
-                          <div className="space-y-4">
-                            {apiTiers.map((tier) => {
-                              let tierPlayers = apiPlayers.filter((p: any) => p.tier?.id === tier.id)
-                              if (playerSearchTerm.trim()) {
-                                tierPlayers = tierPlayers.filter((p: any) =>
-                                  p.name?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
-                                  p.playingRole?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
-                                  p.customTags?.toLowerCase().includes(playerSearchTerm.toLowerCase())
-                                )
-                              }
-                              if (tierPlayers.length === 0) return null
-                              return (
-                                <div key={tier.id}>
-                                  <h3 className="font-medium mb-2 flex items-center gap-2">
-                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tier.color }} />
-                                    {tier.name}
-                                    <span className="text-xs text-muted-foreground">({tierPlayers.length} players, base: {tier.basePrice})</span>
-                                  </h3>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                    {tierPlayers.map((player: any) => (
-                                      <div key={player.id} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
-                                           onClick={() => handleEditApiPlayer(player)}>
-                                        <div className="min-w-0">
-                                          <div className="font-medium truncate">{player.name}</div>
-                                          <div className="flex flex-wrap gap-1 mt-0.5">
-                                            {player.playingRole && (
-                                              <Badge variant="secondary" className="text-xs">{player.playingRole.replace('_', ' ')}</Badge>
-                                            )}
-                                            {player.customTags && player.customTags.split(',').slice(0, 2).map((tag: string, i: number) => (
-                                              <Badge key={i} variant="outline" className="text-xs">{tag.trim()}</Badge>
-                                            ))}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          <div className="text-sm text-muted-foreground mr-2 tabular-nums">{tier.basePrice}</div>
-                                          <Edit className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
+                        })}
+                      </div>
+                    )
+                  })()
+                ) : players.length > 0 ? (
+                  (() => {
+                    const hasResults = [0, 1, 2, 3].some(tierNum => {
+                      let tierPlayers = players.filter(p => p.tier === tierNum)
+                      if (playerSearchTerm.trim()) {
+                        tierPlayers = tierPlayers.filter((p: Player) =>
+                          p.name?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
+                          p.playingRole?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
+                          p.note?.toLowerCase().includes(playerSearchTerm.toLowerCase())
                         )
-                      })()
-                    ) : players.length > 0 ? (
-                      (() => {
-                        const hasResults = [0, 1, 2, 3].some(tierNum => {
+                      }
+                      return tierPlayers.length > 0
+                    })
+
+                    if (!hasResults && playerSearchTerm.trim()) {
+                      return (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium mb-2">No players found</p>
+                          <p className="text-sm">Try searching with a different term</p>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {[0, 1, 2, 3].map(tierNum => {
                           let tierPlayers = players.filter(p => p.tier === tierNum)
                           if (playerSearchTerm.trim()) {
                             tierPlayers = tierPlayers.filter((p: Player) =>
@@ -1024,81 +1543,61 @@ export default function AuctionPage() {
                               p.note?.toLowerCase().includes(playerSearchTerm.toLowerCase())
                             )
                           }
-                          return tierPlayers.length > 0
-                        })
-
-                        if (!hasResults && playerSearchTerm.trim()) {
+                          if (tierPlayers.length === 0) return null
                           return (
-                            <div className="text-center py-12 text-muted-foreground">
-                              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                              <p className="text-lg font-medium mb-2">No players found</p>
-                              <p className="text-sm">Try searching with a different term</p>
+                            <div key={tierNum}>
+                              <h3 className="font-medium mb-2">Tier {tierNum} ({tierPlayers.length} players)</h3>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {tierPlayers.map((player, index) => (
+                                  <div key={index} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
+                                       onClick={() => handleEditPlayer(player)}>
+                                    <div>
+                                      <div className="font-medium">{player.name}</div>
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <Badge variant="outline" className="text-xs">{player.playingRole.replace('_', ' ')}</Badge>
+                                        {player.note && (
+                                          <Badge variant="secondary" className="text-xs">{player.note}</Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <div className="text-sm text-muted-foreground mr-2 tabular-nums">{player.basePrice}</div>
+                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-0.5">
+                                        <Button variant="ghost" size="sm" className="h-5 w-5 p-0" disabled={player.tier === 0}
+                                          onClick={(e) => { e.stopPropagation(); handleMoveTier(player, 'up') }}>
+                                          <ArrowUp className="h-3 w-3" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="h-5 w-5 p-0" disabled={player.tier === 3}
+                                          onClick={(e) => { e.stopPropagation(); handleMoveTier(player, 'down') }}>
+                                          <ArrowDown className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                      <Edit className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-1" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )
-                        }
-
-                        return (
-                          <div className="space-y-4">
-                            {[0, 1, 2, 3].map(tierNum => {
-                              let tierPlayers = players.filter(p => p.tier === tierNum)
-                              if (playerSearchTerm.trim()) {
-                                tierPlayers = tierPlayers.filter((p: Player) =>
-                                  p.name?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
-                                  p.playingRole?.toLowerCase().includes(playerSearchTerm.toLowerCase()) ||
-                                  p.note?.toLowerCase().includes(playerSearchTerm.toLowerCase())
-                                )
-                              }
-                              if (tierPlayers.length === 0) return null
-                              return (
-                                <div key={tierNum}>
-                                  <h3 className="font-medium mb-2">Tier {tierNum} ({tierPlayers.length} players)</h3>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                    {tierPlayers.map((player, index) => (
-                                      <div key={index} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
-                                           onClick={() => handleEditPlayer(player)}>
-                                        <div>
-                                          <div className="font-medium">{player.name}</div>
-                                          <div className="flex items-center gap-2 mt-1">
-                                            <Badge variant="outline" className="text-xs">{player.playingRole.replace('_', ' ')}</Badge>
-                                            {player.note && (
-                                              <Badge variant="secondary" className="text-xs">{player.note}</Badge>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          <div className="text-sm text-muted-foreground mr-2 tabular-nums">{player.basePrice}</div>
-                                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-0.5">
-                                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" disabled={player.tier === 0}
-                                              onClick={(e) => { e.stopPropagation(); handleMoveTier(player, 'up') }}>
-                                              <ArrowUp className="h-3 w-3" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" disabled={player.tier === 3}
-                                              onClick={(e) => { e.stopPropagation(); handleMoveTier(player, 'down') }}>
-                                              <ArrowDown className="h-3 w-3" />
-                                            </Button>
-                                          </div>
-                                          <Edit className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-1" />
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )
-                      })()
-                    ) : (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium mb-2">No players added yet</p>
-                        <p className="text-sm">Add players to your auction using the buttons above</p>
+                        })}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            )}
+                    )
+                  })()
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No players yet</p>
+                    <p className="text-sm">
+                      Go to the{' '}
+                      <button type="button" className="text-primary underline" onClick={() => setActiveTab('setup')}>
+                        Setup tab
+                      </button>
+                      {' '}to import players
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Auction Tab — uses extracted components */}
@@ -1128,6 +1627,11 @@ export default function AuctionPage() {
                       onUnsold={handleUnsold}
                       onUndoLast={handleUndoLast}
                       canUndo={auction.auctionHistory.length > 0}
+                      roundBids={roundBids}
+                      onSelectBid={(bid) => {
+                        setSellTeam(bid.teamName)
+                        setSellPrice(bid.amount)
+                      }}
                     />
                   </NowAuctioningCard>
 
@@ -1148,86 +1652,18 @@ export default function AuctionPage() {
                     progressPercent={(auction.auctionIndex / auction.auctionQueue.length) * 100}
                     recentSales={auction.auctionHistory}
                   />
+                  <ShareLinksPanel auctionId={auctionId} auctionName={auction.name} />
                 </div>
               </div>
             ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Trophy className="h-5 w-5" />
-                    <span>Start Auction</span>
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {auction.teams.length < 2
-                      ? 'Add at least 2 teams to begin the auction'
-                      : `Ready with ${auction.teams.length} teams and ${apiPlayers.length > 0 ? apiPlayers.length : players.length} players`
-                    }
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Player Order Configuration */}
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-medium">Player Order</h3>
-                    <div className="space-y-2">
-                      <label className="flex items-center space-x-3 cursor-pointer">
-                        <input type="radio" name="shuffleMode" value="random" checked={shuffleMode === 'random'}
-                          onChange={() => setShuffleMode('random')} className="h-4 w-4 text-primary" />
-                        <div className="flex items-center space-x-2">
-                          <Shuffle className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">Fully Random</span>
-                        </div>
-                      </label>
-                      <label className="flex items-center space-x-3 cursor-pointer">
-                        <input type="radio" name="shuffleMode" value="tier-ordered" checked={shuffleMode === 'tier-ordered'}
-                          onChange={() => setShuffleMode('tier-ordered')} disabled={apiTiers.length === 0} className="h-4 w-4 text-primary" />
-                        <div className="flex items-center space-x-2">
-                          <ArrowDown className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">By Tier Order</span>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Tier Order List */}
-                  {shuffleMode === 'tier-ordered' && tierOrder.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Tier Order</h3>
-                      <div className="border rounded-lg divide-y">
-                        {tierOrder.map((tier, index) => {
-                          const playerCount = apiPlayers.filter((p: any) => p.tier?.id === tier.tierId).length
-                          return (
-                            <div key={tier.tierId} className="flex items-center justify-between px-3 py-2">
-                              <div className="flex items-center space-x-3">
-                                <span className="text-xs font-mono text-muted-foreground w-5">{index + 1}.</span>
-                                <span className="text-sm font-medium">{tier.tierName}</span>
-                                <Badge variant="secondary" className="text-xs tabular-nums">{tier.basePrice}</Badge>
-                                <Badge variant="outline" className="text-xs">{playerCount} players</Badge>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={index === 0}
-                                  onClick={() => moveTierOrder(index, 'up')}>
-                                  <ArrowUp className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={index === tierOrder.length - 1}
-                                  onClick={() => moveTierOrder(index, 'down')}>
-                                  <ArrowDown className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Players within each tier are shuffled randomly</p>
-                    </div>
-                  )}
-
-                  <Button onClick={handleStartAuction} disabled={auction.teams.length < 2}
-                    className="w-full bg-green-600 hover:bg-green-700" size="lg">
-                    <Play className="h-4 w-4 mr-2" />
-                    Start Auction
-                  </Button>
-                </CardContent>
-              </Card>
+              <div className="text-center py-16 text-muted-foreground">
+                <Trophy className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium mb-2">Auction not started yet</p>
+                <p className="text-sm mb-4">Configure your auction and start it from the Setup tab</p>
+                <Button variant="outline" onClick={() => setActiveTab('setup')}>
+                  Go to Setup
+                </Button>
+              </div>
             )}
           </TabsContent>
 
@@ -1265,13 +1701,6 @@ export default function AuctionPage() {
           </TabsContent>
         </Tabs>
       </div>
-
-      {/* Upload User List Dialog */}
-      <UploadUserList
-        auctionId={auctionId}
-        open={uploadUserListOpen}
-        onOpenChange={setUploadUserListOpen}
-      />
 
       {/* Player Edit Dialog */}
       <Dialog open={!!editingPlayer} onOpenChange={(open) => !open && setEditingPlayer(null)}>

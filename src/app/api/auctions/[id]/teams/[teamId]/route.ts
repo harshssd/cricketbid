@@ -13,6 +13,7 @@ const updateTeamSchema = z.object({
   secondaryColor: z.string().optional(),
   logo: z.string().nullable().optional(),
   captainId: z.string().nullable().optional(),
+  captainPlayerId: z.string().nullable().optional(),
   budgetRemaining: z.number().optional(),
 })
 
@@ -61,10 +62,8 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {}
     if (data.name !== undefined) updateData.name = data.name
     if (data.description !== undefined) updateData.description = data.description
-    if (data.primaryColor !== undefined) updateData.primary_color = data.primaryColor
-    if (data.secondaryColor !== undefined) updateData.secondary_color = data.secondaryColor
-    if (data.logo !== undefined) updateData.logo = data.logo
     if (data.captainId !== undefined) updateData.captain_id = data.captainId
+    if (data.captainPlayerId !== undefined) updateData.captain_player_id = data.captainPlayerId
     if (data.budgetRemaining !== undefined) updateData.budget_remaining = data.budgetRemaining
 
     const { data: updatedTeam, error: updateError } = await supabase
@@ -73,14 +72,16 @@ export async function PATCH(
       .eq('id', teamId)
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
-        players(
-          id,
-          name,
-          image,
-          playing_role,
-          status,
-          tier:tiers!tier_id(name, color)
+        captain:users!teams_captain_id_fkey(id, name, email, image),
+        team_players(
+          player:players(
+            id,
+            name,
+            image,
+            playing_role,
+            status,
+            tier:tiers!tier_id(name, color)
+          )
         ),
         team_members(id)
       `)
@@ -88,12 +89,38 @@ export async function PATCH(
 
     if (updateError) throw updateError
 
-    // Transform to match expected shape with _count
-    const { team_members, ...rest } = updatedTeam
+    // Resolve captain_player manually (FK join unreliable in PostgREST schema cache)
+    let captainPlayer = null
+    if (updatedTeam.captain_player_id) {
+      const { data: cp } = await supabase
+        .from('players')
+        .select('id, name, image, playing_role')
+        .eq('id', updatedTeam.captain_player_id)
+        .maybeSingle()
+      captainPlayer = cp
+    }
+
+    // Transform to camelCase shape with _count
+    const { team_players, team_members, ...rest } = updatedTeam
+    const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
     const result = {
-      ...rest,
+      id: rest.id,
+      auctionId: rest.auction_id,
+      name: rest.name,
+      description: rest.description,
+      captainId: rest.captain_id,
+      captainPlayerId: rest.captain_player_id,
+      budgetRemaining: rest.budget_remaining,
+      captain: rest.captain,
+      captainPlayer: captainPlayer ? {
+        id: captainPlayer.id,
+        name: captainPlayer.name,
+        image: captainPlayer.image,
+        playingRole: captainPlayer.playing_role,
+      } : null,
+      players,
       _count: {
-        players: rest.players?.length ?? 0,
+        players: players.length,
         members: team_members?.length ?? 0
       }
     }
@@ -156,14 +183,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Team not found in this auction' }, { status: 404 })
     }
 
-    // Unassign all players first, then delete team (replacing $transaction)
-    const { error: unassignError } = await supabase
-      .from('players')
-      .update({ assigned_team_id: null })
-      .eq('assigned_team_id', teamId)
-
-    if (unassignError) throw unassignError
-
+    // Delete team — ON DELETE CASCADE on team_players handles cleanup
     const { error: deleteError } = await supabase
       .from('teams')
       .delete()

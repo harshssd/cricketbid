@@ -1,0 +1,316 @@
+'use client'
+
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { auctionRealtimeManager, AuctionState } from '@/lib/auction-realtime'
+
+export type ViewState = 'connecting' | 'waiting' | 'player_up' | 'sold_celebration' | 'between_bids' | 'auction_complete'
+
+export interface PlayerDetails {
+  name: string
+  image?: string | null
+  playingRole: string
+  battingStyle?: string | null
+  bowlingStyle?: string | null
+  tier?: { name: string; color: string; basePrice: number } | null
+}
+
+export interface LiveTeamCaptain {
+  name: string
+  role?: string
+}
+
+export interface LiveTeam {
+  name: string
+  color: string
+  coins: number
+  originalCoins: number
+  players: Array<{ name: string; price: number; role?: string }>
+  captain?: LiveTeamCaptain | null
+}
+
+export interface LastSoldEvent {
+  player: string
+  team: string
+  teamColor: string
+  price: number
+}
+
+export interface LiveAuctionProgress {
+  sold: number
+  total: number
+}
+
+const TEAM_COLORS = [
+  '#3b82f6', '#ef4444', '#22c55e', '#f59e0b',
+  '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
+]
+
+export function useLiveAuction(auctionId: string) {
+  const [viewState, setViewState] = useState<ViewState>('connecting')
+  const [auctionState, setAuctionState] = useState<AuctionState | null>(null)
+  const [playerMap, setPlayerMap] = useState<Map<string, PlayerDetails>>(new Map())
+  const [auctionName, setAuctionName] = useState('')
+  const [isConnected, setIsConnected] = useState(false)
+  const [lastSoldEvent, setLastSoldEvent] = useState<LastSoldEvent | null>(null)
+
+  const [teamCaptainMap, setTeamCaptainMap] = useState<Map<string, LiveTeamCaptain>>(new Map())
+
+  const mountedRef = useRef(true)
+  const prevHistoryLenRef = useRef(0)
+  const prevAuctionIndexRef = useRef(0)
+  const isFirstStateRef = useRef(true)
+  const timersRef = useRef<NodeJS.Timeout[]>([])
+  const teamColorMapRef = useRef<Map<string, string>>(new Map())
+  const handleStateRef = useRef<(state: AuctionState) => void>(() => {})
+
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach(t => clearTimeout(t))
+    timersRef.current = []
+  }, [])
+
+  const getTeamColor = useCallback((teamName: string) => {
+    if (teamColorMapRef.current.has(teamName)) {
+      return teamColorMapRef.current.get(teamName)!
+    }
+    const idx = teamColorMapRef.current.size % TEAM_COLORS.length
+    const color = TEAM_COLORS[idx]
+    teamColorMapRef.current.set(teamName, color)
+    return color
+  }, [])
+
+  // Fetch full auction data from REST API on mount
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchAuctionData() {
+      try {
+        const res = await fetch(`/api/auctions/${auctionId}`)
+        if (!res.ok) throw new Error('Failed to fetch')
+        const data = await res.json()
+
+        if (cancelled) return
+
+        setAuctionName(data.name)
+
+        const map = new Map<string, PlayerDetails>()
+        for (const p of data.players || []) {
+          map.set(p.name, {
+            name: p.name,
+            image: p.image,
+            playingRole: p.playingRole || 'BATSMAN',
+            battingStyle: p.battingStyle,
+            bowlingStyle: p.bowlingStyle,
+            tier: p.tier,
+          })
+        }
+        setPlayerMap(map)
+
+        const captainMap = new Map<string, LiveTeamCaptain>()
+        for (const team of data.teams || []) {
+          getTeamColor(team.name)
+          if (team.captainPlayer) {
+            captainMap.set(team.name, {
+              name: team.captainPlayer.name,
+              role: team.captainPlayer.playingRole,
+            })
+          }
+        }
+        setTeamCaptainMap(captainMap)
+      } catch (err) {
+        console.error('Failed to fetch auction data:', err)
+      }
+    }
+
+    fetchAuctionData()
+    return () => { cancelled = true }
+  }, [auctionId, getTeamColor])
+
+  // Subscribe to realtime
+  useEffect(() => {
+    mountedRef.current = true
+    isFirstStateRef.current = true
+
+    const handleState = (state: AuctionState) => {
+      if (!mountedRef.current) return
+
+      setIsConnected(true)
+      setAuctionState(state)
+
+      const historyLen = state.auctionHistory?.length || 0
+      const auctionIdx = state.auctionIndex ?? 0
+      const queueLen = state.auctionQueue?.length || 0
+
+      // First state received — no transitions, just set the right view
+      if (isFirstStateRef.current) {
+        isFirstStateRef.current = false
+        prevHistoryLenRef.current = historyLen
+        prevAuctionIndexRef.current = auctionIdx
+
+        if (!state.auctionStarted) {
+          setViewState('waiting')
+        } else if (auctionIdx >= queueLen && queueLen > 0) {
+          setViewState('auction_complete')
+        } else {
+          setViewState('player_up')
+        }
+        return
+      }
+
+      // Not started
+      if (!state.auctionStarted) {
+        clearTimers()
+        setViewState('waiting')
+        prevHistoryLenRef.current = historyLen
+        prevAuctionIndexRef.current = auctionIdx
+        return
+      }
+
+      // Auction complete
+      if (auctionIdx >= queueLen && queueLen > 0) {
+        clearTimers()
+        setViewState('auction_complete')
+        prevHistoryLenRef.current = historyLen
+        prevAuctionIndexRef.current = auctionIdx
+        return
+      }
+
+      // Detect transitions from history growth
+      if (historyLen > prevHistoryLenRef.current) {
+        const latestEntry = state.auctionHistory[historyLen - 1]
+
+        // UNSOLD or DEFERRED
+        if (latestEntry.action === 'unsold' || latestEntry.action === 'deferred') {
+          clearTimers()
+          setViewState('between_bids')
+
+          const t = setTimeout(() => {
+            if (!mountedRef.current) return
+            setViewState('player_up')
+          }, 1500)
+          timersRef.current.push(t)
+        } else {
+          // SOLD
+          clearTimers()
+          setLastSoldEvent({
+            player: latestEntry.player,
+            team: latestEntry.team,
+            teamColor: getTeamColor(latestEntry.team),
+            price: latestEntry.price,
+          })
+          setViewState('sold_celebration')
+
+          const t1 = setTimeout(() => {
+            if (!mountedRef.current) return
+            setViewState('between_bids')
+
+            const t2 = setTimeout(() => {
+              if (!mountedRef.current) return
+              setViewState('player_up')
+            }, 1500)
+            timersRef.current.push(t2)
+          }, 3500)
+          timersRef.current.push(t1)
+        }
+
+        prevHistoryLenRef.current = historyLen
+        prevAuctionIndexRef.current = auctionIdx
+        return
+      }
+
+      // Detect UNSOLD/DEFERRED via index advance without history change
+      if (auctionIdx > prevAuctionIndexRef.current) {
+        clearTimers()
+        setViewState('between_bids')
+
+        const t = setTimeout(() => {
+          if (!mountedRef.current) return
+          setViewState('player_up')
+        }, 1500)
+        timersRef.current.push(t)
+
+        prevHistoryLenRef.current = historyLen
+        prevAuctionIndexRef.current = auctionIdx
+        return
+      }
+
+      // No transition — update refs only
+      prevHistoryLenRef.current = historyLen
+      prevAuctionIndexRef.current = auctionIdx
+    }
+
+    handleStateRef.current = handleState
+    auctionRealtimeManager.onAuctionStateChange(handleState)
+    auctionRealtimeManager.subscribeToAuction(auctionId)
+
+    return () => {
+      mountedRef.current = false
+      clearTimers()
+      auctionRealtimeManager.unsubscribe()
+    }
+  }, [auctionId, getTeamColor, clearTimers])
+
+  // Poll auction runtime_state from API as fallback (every 3s)
+  // Uses the same data source as the auctioneer page (auctions.runtime_state)
+  useEffect(() => {
+    if (!auctionId) return
+
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/auctions/${auctionId}/state`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.runtimeState && data.runtimeState.auctionQueue) {
+          handleStateRef.current(data.runtimeState as AuctionState)
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 3000)
+
+    return () => clearInterval(poll)
+  }, [auctionId])
+
+  // Derived values
+  const currentPlayerName = auctionState?.auctionStarted
+    && auctionState.auctionIndex < (auctionState.auctionQueue?.length || 0)
+    ? auctionState.auctionQueue[auctionState.auctionIndex]
+    : null
+
+  const currentPlayer: PlayerDetails | null = currentPlayerName
+    ? playerMap.get(currentPlayerName) || { name: currentPlayerName, playingRole: 'BATSMAN' }
+    : null
+
+  const teams: LiveTeam[] = (auctionState?.teams || []).map((t) => ({
+    name: t.name,
+    color: getTeamColor(t.name),
+    coins: t.coins,
+    originalCoins: t.originalCoins,
+    players: t.players.map(p => ({
+      name: p.name,
+      price: p.price,
+      role: playerMap.get(p.name)?.playingRole,
+    })),
+    captain: teamCaptainMap.get(t.name) || null,
+  }))
+
+  // Exclude captain players from the queue total
+  const captainNames = new Set([...teamCaptainMap.values()].map(c => c.name))
+  const queueTotal = auctionState?.auctionQueue
+    ? auctionState.auctionQueue.filter((name: string) => !captainNames.has(name)).length
+    : 0
+
+  const progress: LiveAuctionProgress = {
+    sold: Object.keys(auctionState?.soldPlayers || {}).length,
+    total: queueTotal,
+  }
+
+  return {
+    viewState,
+    auctionName: auctionName || auctionState?.name || '',
+    currentPlayer,
+    teams,
+    lastSoldEvent,
+    progress,
+    isConnected,
+  }
+}

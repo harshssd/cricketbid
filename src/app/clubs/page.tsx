@@ -29,7 +29,6 @@ interface ClubSummary {
   id: string
   name: string
   description?: string
-  primaryColor: string
   visibility: Visibility
   memberCount: number
   leagueCount: number
@@ -37,11 +36,6 @@ interface ClubSummary {
   isOwner: boolean
   createdAt: Date
   lastActivity?: Date
-}
-
-const VISIBILITY_COLORS: Record<Visibility, string> = {
-  PUBLIC: 'bg-success/10 text-success',
-  PRIVATE: 'bg-destructive/10 text-destructive',
 }
 
 export default function ClubsPage() {
@@ -99,7 +93,6 @@ export default function ClubsPage() {
           id: club.id,
           name: club.name,
           description: club.description,
-          primaryColor: club.primary_color,
           visibility: club.visibility,
           memberCount: club.club_memberships?.[0]?.count ?? 0,
           leagueCount: club.leagues?.[0]?.count ?? 0,
@@ -119,7 +112,6 @@ export default function ClubsPage() {
           id: club.id,
           name: club.name,
           description: club.description,
-          primaryColor: club.primary_color,
           visibility: club.visibility,
           memberCount: club.club_memberships?.[0]?.count ?? 0,
           leagueCount: club.leagues?.[0]?.count ?? 0,
@@ -159,24 +151,6 @@ export default function ClubsPage() {
     }
 
     setFilteredClubs(filtered)
-  }
-
-  const getRoleIcon = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return <Crown className="h-4 w-4 text-warning" />
-      default:
-        return <Users className="h-4 w-4 text-muted-foreground" />
-    }
-  }
-
-  const getRoleBadgeColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'bg-warning/10 text-warning'
-      default:
-        return 'bg-muted text-muted-foreground'
-    }
   }
 
   if (isLoading) {
@@ -323,8 +297,7 @@ export default function ClubsPage() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-3">
                       <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-                        style={{ backgroundColor: club.primaryColor }}
+                        className="w-10 h-10 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground"
                       >
                         {club.name.charAt(0)}
                       </div>
@@ -345,12 +318,11 @@ export default function ClubsPage() {
                   )}
 
                   <div className="flex flex-wrap gap-2 mb-4">
-                    <Badge className={VISIBILITY_COLORS[club.visibility]}>
+                    <Badge variant="outline">
                       {club.visibility}
                     </Badge>
-                    <Badge className={getRoleBadgeColor(club.userRole)}>
-                      {getRoleIcon(club.userRole)}
-                      <span className="ml-1">{club.userRole}</span>
+                    <Badge variant="secondary">
+                      {club.userRole}
                     </Badge>
                   </div>
 

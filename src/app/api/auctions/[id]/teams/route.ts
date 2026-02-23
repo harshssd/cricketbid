@@ -14,8 +14,73 @@ const updateTeamsSchema = z.array(z.object({
   secondaryColor: z.string().default('#1B2A4A'),
   logo: z.string().optional(),
   captainId: z.string().nullable().optional(),
+  captainPlayerId: z.string().nullable().optional(),
   budgetRemaining: z.number().optional(),
 }))
+
+// Shared select query — excludes captain_player FK join (PostgREST schema cache
+// doesn't reliably resolve it). We resolve captain_player manually afterwards.
+const teamSelectQuery = `
+  *,
+  captain:users!teams_captain_id_fkey(id, name, email, image),
+  team_players(player:players(id, name, playing_role)),
+  team_members(id)
+`
+
+// Resolve captain_player for an array of teams by looking up from the players table
+async function resolveCaptainPlayers(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  teams: any[]
+): Promise<any[]> {
+  const captainPlayerIds = teams
+    .map(t => t.captain_player_id)
+    .filter(Boolean)
+
+  if (captainPlayerIds.length === 0) return teams
+
+  const { data: captainPlayers } = await supabase
+    .from('players')
+    .select('id, name, image, playing_role')
+    .in('id', captainPlayerIds)
+
+  const captainMap = new Map(
+    (captainPlayers ?? []).map(p => [p.id, p])
+  )
+
+  return teams.map(team => ({
+    ...team,
+    captain_player: team.captain_player_id
+      ? captainMap.get(team.captain_player_id) ?? null
+      : null,
+  }))
+}
+
+// Transform a raw Supabase team row (with resolved captain_player and unwrapped
+// team_players) into the camelCase shape the frontend expects.
+function transformTeam(raw: any, players: any[], memberCount: number, participationCount?: number) {
+  return {
+    id: raw.id,
+    auctionId: raw.auction_id,
+    name: raw.name,
+    description: raw.description,
+    captainId: raw.captain_id,
+    captainPlayerId: raw.captain_player_id,
+    budgetRemaining: raw.budget_remaining,
+    captain: raw.captain,
+    captainPlayer: raw.captain_player ? {
+      id: raw.captain_player.id,
+      name: raw.captain_player.name,
+      image: raw.captain_player.image,
+      playingRole: raw.captain_player.playing_role,
+    } : null,
+    players,
+    _count: {
+      players: players.length,
+      members: memberCount,
+      ...(participationCount !== undefined && { participations: participationCount }),
+    },
+  }
+}
 
 export async function PUT(
   request: NextRequest,
@@ -59,13 +124,6 @@ export async function PUT(
       .filter(team => team.id)
       .map(team => team.id!)
 
-    const selectQuery = `
-      *,
-      captain:users!captain_id(id, name, email, image),
-      players(id, name, playing_role),
-      team_members(id)
-    `
-
     // Update or create teams sequentially (replacing $transaction)
     for (const teamData of teams) {
       if (teamData.id && existingTeamIds.includes(teamData.id)) {
@@ -73,12 +131,12 @@ export async function PUT(
         const updateData: Record<string, unknown> = {
           name: teamData.name,
           description: teamData.description,
-          primary_color: teamData.primaryColor,
-          secondary_color: teamData.secondaryColor,
-          logo: teamData.logo,
         }
         if (teamData.captainId !== undefined) {
           updateData.captain_id = teamData.captainId
+        }
+        if (teamData.captainPlayerId !== undefined) {
+          updateData.captain_player_id = teamData.captainPlayerId
         }
         if (teamData.budgetRemaining !== undefined) {
           updateData.budget_remaining = teamData.budgetRemaining
@@ -88,20 +146,14 @@ export async function PUT(
           .from('teams')
           .update(updateData)
           .eq('id', teamData.id)
-          .select(selectQuery)
+          .select(teamSelectQuery)
           .single()
 
         if (updateError) throw updateError
 
-        const { players: playersRaw, team_members, ...rest } = updatedTeam
-        updatedTeams.push({
-          ...rest,
-          players: playersRaw ?? [],
-          _count: {
-            players: playersRaw?.length ?? 0,
-            members: team_members?.length ?? 0
-          }
-        })
+        const { team_players, team_members, ...rest } = updatedTeam
+        const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
+        updatedTeams.push(transformTeam(rest, players, team_members?.length ?? 0))
       } else {
         // Create new team
         const { data: newTeam, error: createError } = await supabase
@@ -110,26 +162,18 @@ export async function PUT(
             auction_id: auctionId,
             name: teamData.name,
             description: teamData.description,
-            primary_color: teamData.primaryColor,
-            secondary_color: teamData.secondaryColor,
-            logo: teamData.logo,
             captain_id: teamData.captainId || undefined,
+            captain_player_id: teamData.captainPlayerId || undefined,
             budget_remaining: teamData.budgetRemaining || auction.budget_per_team,
           })
-          .select(selectQuery)
+          .select(teamSelectQuery)
           .single()
 
         if (createError) throw createError
 
-        const { players: playersRaw, team_members, ...rest } = newTeam
-        updatedTeams.push({
-          ...rest,
-          players: playersRaw ?? [],
-          _count: {
-            players: playersRaw?.length ?? 0,
-            members: team_members?.length ?? 0
-          }
-        })
+        const { team_players, team_members, ...rest } = newTeam
+        const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
+        updatedTeams.push(transformTeam(rest, players, team_members?.length ?? 0))
       }
     }
 
@@ -145,9 +189,12 @@ export async function PUT(
       if (deleteError) throw deleteError
     }
 
+    // Resolve captain_player manually
+    const teamsWithCaptains = await resolveCaptainPlayers(supabase, updatedTeams)
+
     return NextResponse.json({
       success: true,
-      teams: updatedTeams
+      teams: teamsWithCaptains
     })
 
   } catch (error) {
@@ -193,15 +240,17 @@ export async function GET(
       .from('teams')
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
-        players(
-          id,
-          name,
-          image,
-          playing_role,
-          tier_id,
-          status,
-          tier:tiers!tier_id(name, color)
+        captain:users!teams_captain_id_fkey(id, name, email, image),
+        team_players(
+          player:players(
+            id,
+            name,
+            image,
+            playing_role,
+            tier_id,
+            status,
+            tier:tiers!tier_id(name, color)
+          )
         ),
         team_members(id),
         auction_participations(id)
@@ -211,15 +260,14 @@ export async function GET(
 
     if (error) throw error
 
-    // Transform to match expected shape with _count
-    const teams = (teamsRaw ?? []).map(({ team_members, auction_participations, ...rest }) => ({
-      ...rest,
-      _count: {
-        players: rest.players?.length ?? 0,
-        members: team_members?.length ?? 0,
-        participations: auction_participations?.length ?? 0
-      }
-    }))
+    // Resolve captain_player manually (FK join unreliable in PostgREST schema cache)
+    const teamsWithCaptains = await resolveCaptainPlayers(supabase, teamsRaw ?? [])
+
+    // Transform to camelCase shape with _count
+    const teams = teamsWithCaptains.map(({ team_players, team_members, auction_participations, ...rest }) => {
+      const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
+      return transformTeam(rest, players, team_members?.length ?? 0, auction_participations?.length ?? 0)
+    })
 
     return NextResponse.json({
       teams,

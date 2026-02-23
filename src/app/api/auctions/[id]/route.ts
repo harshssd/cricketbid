@@ -20,11 +20,12 @@ export async function GET(
       .select(`
         *,
         owner:users!owner_id(id, name, email, image),
-        league:leagues!league_id(id, name, logo, primary_color),
+        league:leagues!league_id(id, name),
         teams(
           *,
           captain:users!captain_id(id, name, email, image),
-          players(id, name, playing_role, status),
+          captain_player:players!teams_captain_player_id_fkey(id, name, playing_role),
+          team_players(player:players(id, name, playing_role, status)),
           team_members(id)
         ),
         tiers(
@@ -34,12 +35,12 @@ export async function GET(
         players(
           *,
           tier:tiers!tier_id(id, name, base_price, color),
-          assigned_team:teams!assigned_team_id(id, name, primary_color)
+          team_players(team:teams(id, name))
         ),
         auction_participations(
           *,
           user:users!user_id(id, name, email, image),
-          team:teams!team_id(id, name, primary_color)
+          team:teams!team_id(id, name)
         ),
         rounds(
           *,
@@ -97,23 +98,29 @@ export async function GET(
       unsold: sortedPlayers.filter((p: any) => p.status === 'UNSOLD').length,
     }
 
-    const teamStats = sortedTeams.map((team: any) => ({
-      id: team.id,
-      name: team.name,
-      primaryColor: team.primary_color,
-      secondaryColor: team.secondary_color,
-      logo: team.logo,
-      captain: team.captain,
-      budgetRemaining: team.budget_remaining ?? auction.budget_per_team,
-      budgetSpent: auction.budget_per_team - (team.budget_remaining ?? auction.budget_per_team),
-      playerCount: (team.players || []).length,
-      players: (team.players || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        playingRole: p.playing_role,
-        status: p.status,
-      })),
-    }))
+    const teamStats = sortedTeams.map((team: any) => {
+      const players = (team.team_players || []).map((tp: any) => tp.player).filter(Boolean)
+      return {
+        id: team.id,
+        name: team.name,
+        captain: team.captain,
+        captainPlayerId: team.captain_player_id || null,
+        captainPlayer: team.captain_player ? {
+          id: team.captain_player.id,
+          name: team.captain_player.name,
+          playingRole: team.captain_player.playing_role,
+        } : null,
+        budgetRemaining: team.budget_remaining ?? auction.budget_per_team,
+        budgetSpent: auction.budget_per_team - (team.budget_remaining ?? auction.budget_per_team),
+        playerCount: players.length,
+        players: players.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          playingRole: p.playing_role,
+          status: p.status,
+        })),
+      }
+    })
 
     const tierStats = sortedTiers.map((tier: any) => ({
       id: tier.id,
@@ -128,32 +135,33 @@ export async function GET(
     }))
 
     // Transform players to camelCase
-    const transformedPlayers = sortedPlayers.map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      image: p.image,
-      playingRole: p.playing_role,
-      battingStyle: p.batting_style,
-      bowlingStyle: p.bowling_style,
-      status: p.status,
-      auctionId: p.auction_id,
-      tierId: p.tier_id,
-      assignedTeamId: p.assigned_team_id,
-      customTags: p.custom_tags,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-      tier: p.tier ? {
-        id: p.tier.id,
-        name: p.tier.name,
-        basePrice: p.tier.base_price,
-        color: p.tier.color,
-      } : null,
-      assignedTeam: p.assigned_team ? {
-        id: p.assigned_team.id,
-        name: p.assigned_team.name,
-        primaryColor: p.assigned_team.primary_color,
-      } : null,
-    }))
+    const transformedPlayers = sortedPlayers.map((p: any) => {
+      const assignedTeam = p.team_players?.[0]?.team ?? null
+      return {
+        id: p.id,
+        name: p.name,
+        image: p.image,
+        playingRole: p.playing_role,
+        battingStyle: p.batting_style,
+        bowlingStyle: p.bowling_style,
+        status: p.status,
+        auctionId: p.auction_id,
+        tierId: p.tier_id,
+        customTags: p.custom_tags,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        tier: p.tier ? {
+          id: p.tier.id,
+          name: p.tier.name,
+          basePrice: p.tier.base_price,
+          color: p.tier.color,
+        } : null,
+        assignedTeam: assignedTeam ? {
+          id: assignedTeam.id,
+          name: assignedTeam.name,
+        } : null,
+      }
+    })
 
     // Transform participations to camelCase
     const transformedParticipations = sortedParticipations.map((p: any) => ({
@@ -167,7 +175,6 @@ export async function GET(
       team: p.team ? {
         id: p.team.id,
         name: p.team.name,
-        primaryColor: p.team.primary_color,
       } : null,
     }))
 
@@ -210,8 +217,6 @@ export async function GET(
     const transformedLeague = auction.league ? {
       id: auction.league.id,
       name: auction.league.name,
-      logo: auction.league.logo,
-      primaryColor: auction.league.primary_color,
     } : null
 
     return NextResponse.json({
@@ -225,9 +230,6 @@ export async function GET(
       currencyName: auction.currency_name,
       currencyIcon: auction.currency_icon,
       squadSize: auction.squad_size,
-      logo: auction.logo,
-      primaryColor: auction.primary_color,
-      secondaryColor: auction.secondary_color,
       leagueId: auction.league_id,
       createdAt: auction.created_at,
       updatedAt: auction.updated_at,
@@ -276,8 +278,6 @@ export async function PATCH(
       currencyName: 'currency_name',
       currencyIcon: 'currency_icon',
       squadSize: 'squad_size',
-      primaryColor: 'primary_color',
-      secondaryColor: 'secondary_color',
       leagueId: 'league_id',
       ownerId: 'owner_id',
       runtimeState: 'runtime_state',
@@ -302,7 +302,7 @@ export async function PATCH(
         teams(
           *,
           captain:users!captain_id(id, name, email, image),
-          players(id)
+          team_players(player_id)
         )
       `)
       .single()
@@ -328,16 +328,13 @@ export async function PATCH(
       id: team.id,
       name: team.name,
       auctionId: team.auction_id,
-      primaryColor: team.primary_color,
-      secondaryColor: team.secondary_color,
-      logo: team.logo,
       captainId: team.captain_id,
       budgetRemaining: team.budget_remaining,
       createdAt: team.created_at,
       updatedAt: team.updated_at,
       captain: team.captain,
       _count: {
-        players: (team.players || []).length,
+        players: (team.team_players || []).length,
       },
     }))
 
@@ -358,9 +355,6 @@ export async function PATCH(
       currencyName: auction.currency_name,
       currencyIcon: auction.currency_icon,
       squadSize: auction.squad_size,
-      logo: auction.logo,
-      primaryColor: auction.primary_color,
-      secondaryColor: auction.secondary_color,
       leagueId: auction.league_id,
       createdAt: auction.created_at,
       updatedAt: auction.updated_at,

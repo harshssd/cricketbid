@@ -19,8 +19,6 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle,
-  Image as ImageIcon,
-  Palette,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -43,19 +41,6 @@ const VISIBILITY_OPTIONS: Array<{ value: Visibility; label: string; description:
   }
 ]
 
-const PRESET_COLORS = [
-  '#3B82F6', // Blue
-  '#10B981', // Green
-  '#F59E0B', // Yellow
-  '#EF4444', // Red
-  '#8B5CF6', // Purple
-  '#F97316', // Orange
-  '#06B6D4', // Cyan
-  '#84CC16', // Lime
-  '#EC4899', // Pink
-  '#6B7280'  // Gray
-]
-
 export default function CreateClubPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -69,7 +54,6 @@ export default function CreateClubPage() {
   const [formData, setFormData] = useState<ClubFormData>({
     name: '',
     description: '',
-    primaryColor: '#3B82F6',
     visibility: 'PUBLIC',
     inviteEmails: [],
   })
@@ -131,14 +115,22 @@ export default function CreateClubPage() {
     setError('')
 
     try {
+      // Generate slug from name
+      const baseSlug = formData.name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      const slug = `${baseSlug}-${Date.now().toString(36)}`
+
       // Insert club
       const { data: club, error: clubError } = await supabase
         .from('clubs')
         .insert({
           name: formData.name,
+          slug,
           description: formData.description || null,
           owner_id: user.id,
-          primary_color: formData.primaryColor,
           visibility: formData.visibility,
         })
         .select()
@@ -221,8 +213,7 @@ export default function CreateClubPage() {
   const steps = [
     { number: 1, title: 'Basic Info', description: 'Club name and details' },
     { number: 2, title: 'Configuration', description: 'Visibility settings' },
-    { number: 3, title: 'Branding', description: 'Colors and appearance' },
-    { number: 4, title: 'Invitations', description: 'Invite members' }
+    { number: 3, title: 'Invitations', description: 'Invite members' }
   ]
 
   return (
@@ -348,105 +339,8 @@ export default function CreateClubPage() {
               </div>
             )}
 
-            {/* Step 3: Branding */}
+            {/* Step 3: Invitations */}
             {currentStep === 3 && (
-              <div className="space-y-6">
-                <div>
-                  <Label className="text-base font-medium">Primary Color</Label>
-                  <div className="mt-3">
-                    <div className="flex flex-wrap gap-3 mb-4">
-                      {PRESET_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          className={`
-                            w-10 h-10 rounded-lg border-2 transition-all
-                            ${formData.primaryColor === color
-                              ? 'border-ring scale-110'
-                              : 'border-border hover:scale-105'
-                            }
-                          `}
-                          style={{ backgroundColor: color }}
-                          onClick={() => handleInputChange('primaryColor', color)}
-                        />
-                      ))}
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Input
-                        type="color"
-                        value={formData.primaryColor}
-                        onChange={(e) => handleInputChange('primaryColor', e.target.value)}
-                        className="w-20 h-10"
-                      />
-                      <Input
-                        type="text"
-                        value={formData.primaryColor}
-                        onChange={(e) => handleInputChange('primaryColor', e.target.value)}
-                        placeholder="#3B82F6"
-                        className="font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <Label className="text-base font-medium">Club Logo</Label>
-                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
-                      <ImageIcon className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground mb-2">
-                        Upload your club logo
-                      </p>
-                      <Button variant="outline" size="sm" disabled>
-                        Choose File
-                      </Button>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        PNG, JPG up to 2MB
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-base font-medium">Banner Image</Label>
-                    <div className="mt-2 border-2 border-dashed border-border rounded-lg p-6 text-center">
-                      <ImageIcon className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground mb-2">
-                        Upload banner image
-                      </p>
-                      <Button variant="outline" size="sm" disabled>
-                        Choose File
-                      </Button>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        PNG, JPG up to 5MB
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Preview */}
-                <div>
-                  <Label className="text-base font-medium">Preview</Label>
-                  <div className="mt-3 border rounded-lg p-4" style={{ backgroundColor: `${formData.primaryColor}20` }}>
-                    <div className="flex items-center space-x-3 mb-2">
-                      <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg"
-                        style={{ backgroundColor: formData.primaryColor }}
-                      >
-                        {formData.name.charAt(0) || 'C'}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-lg">{formData.name || 'Your Club Name'}</h3>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {formData.description || 'Club description will appear here...'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Invitations */}
-            {currentStep === 4 && (
               <div className="space-y-6">
                 <div className="text-center">
                   <Users className="h-12 w-12 text-primary mx-auto mb-4" />
@@ -564,13 +458,13 @@ export default function CreateClubPage() {
               </Button>
 
               <div className="flex space-x-3">
-                {currentStep < 4 && (
+                {currentStep < 3 && (
                   <Button onClick={nextStep}>
                     Next
                     <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
                 )}
-                {currentStep === 4 && (
+                {currentStep === 3 && (
                   <Button
                     onClick={handleSubmit}
                     disabled={isLoading}

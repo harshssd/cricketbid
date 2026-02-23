@@ -212,6 +212,7 @@ export async function joinAuction(
 
 export interface CaptainAuthResult {
   success: boolean
+  accessRole?: 'CAPTAIN' | 'VICE_CAPTAIN' | 'AUCTION_ADMIN' | 'AUCTION_OWNER'
   error?: string
   details?: string
   currentUser?: string
@@ -252,7 +253,7 @@ export async function verifyTeamAdminAccess(
 
     // Check if user is the assigned team captain
     if (teamCaptain && teamCaptain.id === userId) {
-      return { success: true }
+      return { success: true, accessRole: 'CAPTAIN' }
     }
 
     // Check if user is a team member with CAPTAIN role
@@ -264,19 +265,46 @@ export async function verifyTeamAdminAccess(
 
     const captainMember = captainMembers?.find((m: any) => m.user_id === userId)
     if (captainMember) {
-      return { success: true }
+      return { success: true, accessRole: 'VICE_CAPTAIN' }
     }
 
-    // Check if user has admin role in auction participation
-    const { data: participations } = await supabase
+    // Check if user has admin role in auction participation for this team
+    const { data: teamParticipations } = await supabase
       .from('auction_participations')
       .select('id, role')
       .eq('team_id', teamId)
       .eq('user_id', userId)
       .in('role', ['OWNER', 'MODERATOR', 'CAPTAIN'])
 
-    if (participations && participations.length > 0) {
-      return { success: true }
+    if (teamParticipations && teamParticipations.length > 0) {
+      const role = teamParticipations[0].role
+      return {
+        success: true,
+        accessRole: role === 'CAPTAIN' ? 'CAPTAIN' : 'AUCTION_ADMIN',
+      }
+    }
+
+    // Check if user is an auction-level OWNER or MODERATOR (can access any team)
+    const { data: auctionAdminParticipations } = await supabase
+      .from('auction_participations')
+      .select('id, role')
+      .eq('auction_id', auctionId)
+      .eq('user_id', userId)
+      .in('role', ['OWNER', 'MODERATOR'])
+
+    if (auctionAdminParticipations && auctionAdminParticipations.length > 0) {
+      return { success: true, accessRole: 'AUCTION_ADMIN' }
+    }
+
+    // Check if user is the auction owner directly
+    const { data: auctionData } = await supabase
+      .from('auctions')
+      .select('owner_id')
+      .eq('id', auctionId)
+      .maybeSingle()
+
+    if (auctionData?.owner_id === userId) {
+      return { success: true, accessRole: 'AUCTION_OWNER' }
     }
 
     const authorizedUsers: string[] = []

@@ -54,8 +54,7 @@ export async function GET(
       .from('players')
       .select(`
         *,
-        tier:tiers!tier_id(id, name, base_price, color),
-        linked_user:users!user_id(id, name, email, image)
+        tier:tiers!tier_id(id, name, base_price, color)
       `)
       .eq('league_id', leagueId)
       .is('auction_id', null)
@@ -210,8 +209,7 @@ export async function POST(
       .insert(insertData)
       .select(`
         *,
-        tier:tiers!tier_id(id, name, base_price, color),
-        linked_user:users!user_id(id, name, email, image)
+        tier:tiers!tier_id(id, name, base_price, color)
       `)
       .single()
 

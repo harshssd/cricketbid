@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       .select(`
         *,
         owner:users!owner_id(id, name, email, image),
-        league:leagues!league_id(id, name, logo),
+        league:leagues!league_id(id, name),
         teams(id),
         players(id),
         auction_participations(id)
@@ -68,9 +68,6 @@ export async function GET(request: NextRequest) {
       description: auction.description,
       status: auction.status,
       visibility: auction.visibility,
-      primaryColor: auction.primary_color,
-      secondaryColor: auction.secondary_color,
-      logo: auction.logo,
       budgetPerTeam: auction.budget_per_team,
       currencyName: auction.currency_name,
       currencyIcon: auction.currency_icon,

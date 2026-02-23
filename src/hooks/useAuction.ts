@@ -8,9 +8,6 @@ export interface AuctionDetail {
   description?: string
   status: 'DRAFT' | 'LOBBY' | 'LIVE' | 'COMPLETED' | 'ARCHIVED'
   visibility: 'PUBLIC' | 'PRIVATE'
-  primaryColor: string
-  secondaryColor: string
-  logo?: string
   budgetPerTeam: number
   currencyName: string
   currencyIcon: string
@@ -22,8 +19,6 @@ export interface AuctionDetail {
   league?: {
     id: string
     name: string
-    logo?: string
-    primaryColor: string
   }
 
   // Owner info
@@ -38,9 +33,6 @@ export interface AuctionDetail {
   teamStats: Array<{
     id: string
     name: string
-    primaryColor: string
-    secondaryColor: string
-    logo?: string
     budgetRemaining: number
     budgetSpent: number
     playerCount: number
@@ -87,7 +79,6 @@ export interface AuctionDetail {
     assignedTeam?: {
       id: string
       name: string
-      primaryColor: string
     }
   }>
 
@@ -105,7 +96,6 @@ export interface AuctionDetail {
     team?: {
       id: string
       name: string
-      primaryColor: string
     }
   }>
 

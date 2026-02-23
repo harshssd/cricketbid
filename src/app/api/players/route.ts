@@ -51,10 +51,9 @@ export async function GET(request: NextRequest) {
       .from('players')
       .select(`
         *,
-        linked_user:users!user_id(id, name, email, image),
         auction:auctions!auction_id(id, name, status),
         tier:tiers!tier_id(id, name, base_price, color),
-        assigned_team:teams!assigned_team_id(id, name, primary_color)
+        team_players(team:teams(id, name))
       `)
 
     // Apply filters
@@ -123,7 +122,11 @@ export async function GET(request: NextRequest) {
       throw countResult.error
     }
 
-    const players = playersResult.data
+    // Transform team_players → assigned_team for backward compat
+    const players = (playersResult.data ?? []).map((p: any) => {
+      const { team_players: tp, ...rest } = p
+      return { ...rest, assigned_team: tp?.[0]?.team ?? null }
+    })
     const totalCount = countResult.count ?? 0
 
     // Calculate pagination info

@@ -16,14 +16,11 @@ const playerSchema = z.object({
   bowlingStyle: z.string().optional(),
   customTags: z.string().optional(),
   tierId: z.string().min(1, 'Tier is required'),
-  email: z.string().email().optional(),
-  userId: z.string().optional(),
 })
 
 const importPlayersSchema = z.object({
   players: z.array(playerSchema).min(1, 'At least one player is required'),
   overwrite: z.boolean().default(false),
-  autoLinkUsers: z.boolean().default(true),
 })
 
 export async function POST(
@@ -93,73 +90,29 @@ export async function POST(
       }
     }
 
-    // Create players sequentially with user linking
+    // Create players
     const players = []
-    const linkingResults = {
-      linked: 0,
-      unlinked: 0,
-      errors: [] as string[]
-    }
 
     for (const playerData of validatedData.players) {
-      let resolvedUserId: string | null = null
-
-      if (playerData.userId) {
-        const { data: user } = await supabase
-          .from('users')
-          .select('id, email')
-          .eq('id', playerData.userId)
-          .maybeSingle()
-
-        if (user) {
-          resolvedUserId = playerData.userId
-          linkingResults.linked++
-        } else {
-          linkingResults.errors.push(`User not found for ID: ${playerData.userId} (player: ${playerData.name})`)
-        }
-      } else if (validatedData.autoLinkUsers && playerData.email) {
-        const { data: user } = await supabase
-          .from('users')
-          .select('id, email')
-          .eq('email', playerData.email)
-          .maybeSingle()
-
-        if (user) {
-          resolvedUserId = user.id
-          linkingResults.linked++
-        } else {
-          linkingResults.unlinked++
-        }
-      } else {
-        linkingResults.unlinked++
-      }
-
-      // Remove email from playerData before creating (not a Player field)
-      const { email: _email, ...playerCreateData } = playerData
-
-      // Map camelCase fields to snake_case for insert
       const insertData: any = {
-        name: playerCreateData.name,
-        playing_role: playerCreateData.playingRole,
-        tier_id: playerCreateData.tierId,
+        name: playerData.name,
+        playing_role: playerData.playingRole,
+        tier_id: playerData.tierId,
         auction_id: auctionId,
-        league_id: auction.league_id,
         status: 'AVAILABLE',
-        user_id: resolvedUserId,
       }
 
-      if (playerCreateData.image) insertData.image = playerCreateData.image
-      if (playerCreateData.battingStyle) insertData.batting_style = playerCreateData.battingStyle
-      if (playerCreateData.bowlingStyle) insertData.bowling_style = playerCreateData.bowlingStyle
-      if (playerCreateData.customTags) insertData.custom_tags = playerCreateData.customTags
+      if (playerData.image) insertData.image = playerData.image
+      if (playerData.battingStyle) insertData.batting_style = playerData.battingStyle
+      if (playerData.bowlingStyle) insertData.bowling_style = playerData.bowlingStyle
+      if (playerData.customTags) insertData.custom_tags = playerData.customTags
 
       const { data: player, error: createError } = await supabase
         .from('players')
         .insert(insertData)
         .select(`
           *,
-          tier:tiers!tier_id(id, name, base_price, color),
-          linked_user:users!user_id(id, name, email, image)
+          tier:tiers!tier_id(id, name, base_price, color)
         `)
         .single()
 
@@ -186,11 +139,6 @@ export async function POST(
       players,
       totalPlayers: playerCount ?? 0,
       overwritten: validatedData.overwrite,
-      linking: {
-        enabled: validatedData.autoLinkUsers,
-        results: linkingResults,
-        summary: `${linkingResults.linked} linked, ${linkingResults.unlinked} unlinked${linkingResults.errors.length > 0 ? `, ${linkingResults.errors.length} errors` : ''}`
-      }
     })
 
   } catch (error) {
@@ -227,8 +175,7 @@ export async function GET(
       .select(`
         *,
         tier:tiers!tier_id(id, name, base_price, color),
-        assigned_team:teams!assigned_team_id(id, name, primary_color),
-        linked_user:users!user_id(id, name, email, image)
+        team_players(team:teams(id, name))
       `)
       .eq('auction_id', auctionId)
       .order('status', { ascending: true })
@@ -243,12 +190,16 @@ export async function GET(
       available: players.filter(p => p.status === 'AVAILABLE').length,
       sold: players.filter(p => p.status === 'SOLD').length,
       unsold: players.filter(p => p.status === 'UNSOLD').length,
-      linked: players.filter(p => p.user_id != null).length,
-      unlinked: players.filter(p => p.user_id == null).length,
     }
 
+    // Transform team_players → assigned_team for backward compat
+    const transformedPlayers = players.map((p: any) => {
+      const { team_players: tp, ...rest } = p
+      return { ...rest, assigned_team: tp?.[0]?.team ?? null }
+    })
+
     return NextResponse.json({
-      players,
+      players: transformedPlayers,
       playerStats
     })
 

@@ -5,9 +5,6 @@ import { z } from 'zod'
 const createTeamSchema = z.object({
   name: z.string().min(1, 'Team name is required'),
   description: z.string().optional(),
-  primaryColor: z.string().default('#3B82F6'),
-  secondaryColor: z.string().default('#1B2A4A'),
-  logo: z.string().optional(),
   captainId: z.string().optional(),
   maxMembers: z.number().min(1).default(11),
 
@@ -101,9 +98,6 @@ export async function POST(request: NextRequest) {
       .insert({
         name: teamData.name,
         description: teamData.description,
-        primary_color: teamData.primaryColor,
-        secondary_color: teamData.secondaryColor,
-        logo: teamData.logo,
         captain_id: teamData.captainId,
         max_members: teamData.maxMembers,
         club_id: teamData.clubId,
@@ -228,9 +222,6 @@ export async function PUT(request: NextRequest) {
       const snakeCaseData: Record<string, unknown> = {}
       if (updateData.name !== undefined) snakeCaseData.name = updateData.name
       if (updateData.description !== undefined) snakeCaseData.description = updateData.description
-      if (updateData.primaryColor !== undefined) snakeCaseData.primary_color = updateData.primaryColor
-      if (updateData.secondaryColor !== undefined) snakeCaseData.secondary_color = updateData.secondaryColor
-      if (updateData.logo !== undefined) snakeCaseData.logo = updateData.logo
       if (updateData.captainId !== undefined) snakeCaseData.captain_id = updateData.captainId
       if (updateData.maxMembers !== undefined) snakeCaseData.max_members = updateData.maxMembers
       if (updateData.clubId !== undefined) snakeCaseData.club_id = updateData.clubId

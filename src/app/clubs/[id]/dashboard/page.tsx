@@ -11,7 +11,6 @@ import {
   Users,
   Settings,
   Plus,
-  Crown,
   Mail,
   Activity,
   ArrowLeft,
@@ -170,7 +169,6 @@ export default function ClubsDashboard() {
         id: clubData.id,
         name: clubData.name,
         description: clubData.description,
-        primaryColor: clubData.primary_color,
         visibility: clubData.visibility,
         ownerId: clubData.owner_id,
         memberCount: membersData?.length || 0,
@@ -350,24 +348,6 @@ export default function ClubsDashboard() {
     )
   }
 
-  const getRoleIcon = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return <Crown className="h-4 w-4 text-warning" />
-      default:
-        return <Users className="h-4 w-4 text-muted-foreground" />
-    }
-  }
-
-  const getRoleBadgeColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'bg-warning/10 text-warning'
-      default:
-        return 'bg-muted text-muted-foreground'
-    }
-  }
-
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -383,8 +363,7 @@ export default function ClubsDashboard() {
               </Link>
               <div className="flex items-center space-x-3">
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold"
-                  style={{ backgroundColor: club.primaryColor }}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground"
                 >
                   {club.name.charAt(0)}
                 </div>
@@ -437,9 +416,8 @@ export default function ClubsDashboard() {
                 </div>
               </div>
               <div className="text-right">
-                <Badge className={`${getRoleBadgeColor(club.userRole)} mb-2`}>
-                  {getRoleIcon(club.userRole)}
-                  <span className="ml-1">{club.userRole}</span>
+                <Badge variant="secondary" className="mb-2">
+                  {club.userRole}
                 </Badge>
                 <p className="text-sm text-blue-100">
                   Cricket Club
@@ -614,7 +592,7 @@ export default function ClubsDashboard() {
                           <div className="text-xs text-muted-foreground">{member.email}</div>
                         </div>
                       </div>
-                      <Badge className={`text-xs ${getRoleBadgeColor(member.role)}`}>
+                      <Badge variant="secondary" className="text-xs">
                         {member.role}
                       </Badge>
                     </div>
@@ -736,7 +714,7 @@ export default function ClubsDashboard() {
                       </div>
                     </div>
                   </div>
-                  <Badge className={`${getRoleBadgeColor(member.role)}`}>
+                  <Badge variant="secondary">
                     {member.role}
                   </Badge>
                 </div>

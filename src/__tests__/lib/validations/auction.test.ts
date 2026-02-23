@@ -8,7 +8,6 @@ import {
   tierSchema,
   tierSchemaBase,
   tiersSchema,
-  brandingSchema,
   createAuctionSchema,
   wizardFormStateSchema,
   validateStep,
@@ -99,13 +98,8 @@ describe('Auction Validation Schemas', () => {
 
   describe('organizationSelectSchema', () => {
     const validOrgSelect = {
-      creationType: 'LEAGUE' as const,
-      organizationId: 'org-123',
-      organizationName: 'Test League',
-      organizationCode: 'TEST',
-      organizationType: 'league' as const,
-      inheritBranding: true,
-      restrictToMembers: false,
+      leagueId: 'league-123',
+      leagueName: 'Test League',
     }
 
     it('should validate correct organization selection', () => {
@@ -113,25 +107,18 @@ describe('Auction Validation Schemas', () => {
       expect(result.success).toBe(true)
     })
 
-    it('should accept all creation types', () => {
-      const types = ['STANDALONE', 'LEAGUE']
-      types.forEach(type => {
-        const result = organizationSelectSchema.safeParse({
-          creationType: type,
-        })
-        expect(result.success).toBe(true)
+    it('should require leagueId', () => {
+      const result = organizationSelectSchema.safeParse({
+        leagueId: '',
       })
+      expect(result.success).toBe(false)
     })
 
-    it('should set default values correctly', () => {
+    it('should accept optional leagueName', () => {
       const result = organizationSelectSchema.safeParse({
-        creationType: 'STANDALONE',
+        leagueId: 'league-123',
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.inheritBranding).toBe(false)
-        expect(result.data.restrictToMembers).toBe(false)
-      }
     })
   })
 
@@ -281,26 +268,12 @@ describe('Auction Validation Schemas', () => {
   describe('teamSchema', () => {
     const validTeam = {
       name: 'Test Team',
-      primaryColor: '#FF0000',
-      secondaryColor: '#00FF00',
-      logo: 'https://example.com/logo.png',
       captainEmail: 'captain@example.com',
     }
 
     it('should validate correct team data', () => {
       const result = teamSchema.safeParse(validTeam)
       expect(result.success).toBe(true)
-    })
-
-    it('should reject invalid color format', () => {
-      const result = teamSchema.safeParse({
-        ...validTeam,
-        primaryColor: 'red',
-      })
-      expect(result.success).toBe(false)
-      if (!result.success) {
-        expect(result.error.issues[0].message).toBe('Invalid color format')
-      }
     })
 
     it('should reject invalid email format', () => {
@@ -314,11 +287,9 @@ describe('Auction Validation Schemas', () => {
       }
     })
 
-    it('should accept optional fields', () => {
+    it('should accept optional captainEmail', () => {
       const result = teamSchema.safeParse({
         name: 'Test Team',
-        primaryColor: '#FF0000',
-        secondaryColor: '#00FF00',
       })
       expect(result.success).toBe(true)
     })
@@ -536,6 +507,7 @@ describe('Auction Validation Schemas', () => {
           timezone: 'UTC',
           visibility: 'PUBLIC' as const,
         },
+        leagueId: 'league-123',
         config: {
           budgetPerTeam: 1000,
           currencyName: 'Coins',
@@ -546,13 +518,9 @@ describe('Auction Validation Schemas', () => {
         teams: [
           {
             name: 'Team Alpha',
-            primaryColor: '#FF0000',
-            secondaryColor: '#FFFFFF',
           },
           {
             name: 'Team Beta',
-            primaryColor: '#00FF00',
-            secondaryColor: '#000000',
           },
         ],
         tiers: [
@@ -571,11 +539,6 @@ describe('Auction Validation Schemas', () => {
             maxPerTeam: 4,
           },
         ],
-        branding: {
-          primaryColor: '#1B2A4A',
-          secondaryColor: '#3B82F6',
-          font: 'system',
-        },
       }
 
       const result = createAuctionSchema.safeParse(completeData)
@@ -585,14 +548,13 @@ describe('Auction Validation Schemas', () => {
     it('should validate wizard form state with partial data', () => {
       const wizardState = {
         currentStep: 2,
-        setupMode: 'MANUAL' as const,
         basicInfo: {
           name: 'Partial Auction',
         },
+        organizationSelect: {},
         config: {
           budgetPerTeam: 1000,
         },
-        isDraft: true,
         lastModified: new Date().toISOString(),
       }
 

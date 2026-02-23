@@ -175,8 +175,7 @@ export async function PUT(
       .select(`
         *,
         tier:tiers!tier_id(id, name, base_price, color),
-        assigned_team:teams!assigned_team_id(id, name, primary_color),
-        linked_user:users!user_id(id, name, email, image)
+        team_players(team:teams(id, name))
       `)
       .single()
 
@@ -184,10 +183,14 @@ export async function PUT(
       throw updateError
     }
 
+    // Transform team_players → assigned_team for backward compat
+    const { team_players: tp, ...playerRest } = updatedPlayer as any
+    const assigned_team = tp?.[0]?.team ?? null
+
     return NextResponse.json({
       success: true,
       message: `Player ${updatedPlayer.name} updated successfully`,
-      player: updatedPlayer
+      player: { ...playerRest, assigned_team }
     })
 
   } catch (error) {
@@ -225,8 +228,7 @@ export async function GET(
       .select(`
         *,
         tier:tiers!tier_id(id, name, base_price, color),
-        assigned_team:teams!assigned_team_id(id, name, primary_color),
-        linked_user:users!user_id(id, name, email, image)
+        team_players(team:teams(id, name))
       `)
       .eq('id', playerId)
       .eq('auction_id', auctionId)
@@ -243,9 +245,13 @@ export async function GET(
       )
     }
 
+    // Transform team_players → assigned_team for backward compat
+    const { team_players: tp2, ...playerData } = player as any
+    const assigned_team2 = tp2?.[0]?.team ?? null
+
     return NextResponse.json({
       success: true,
-      player
+      player: { ...playerData, assigned_team: assigned_team2 }
     })
 
   } catch (error) {

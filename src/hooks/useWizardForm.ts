@@ -86,22 +86,8 @@ export function useWizardForm() {
 
   // Initialize teams based on team count
   const initializeTeams = useCallback((teamCount: number) => {
-    const defaultColors = [
-      { primary: '#3B82F6', secondary: '#1B2A4A' },
-      { primary: '#EF4444', secondary: '#7F1D1D' },
-      { primary: '#10B981', secondary: '#064E3B' },
-      { primary: '#F59E0B', secondary: '#78350F' },
-      { primary: '#8B5CF6', secondary: '#3730A3' },
-      { primary: '#EC4899', secondary: '#7C2D12' },
-      { primary: '#06B6D4', secondary: '#0C4A6E' },
-      { primary: '#84CC16', secondary: '#365314' },
-    ]
-
     const teams = Array.from({ length: teamCount }, (_, index) => ({
       name: `Team ${index + 1}`,
-      primaryColor: defaultColors[index % defaultColors.length].primary,
-      secondaryColor: defaultColors[index % defaultColors.length].secondary,
-      logo: undefined,
       captainEmail: undefined
     }))
 

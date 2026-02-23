@@ -9,11 +9,9 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Trophy,
-  Shield,
   Users,
   Search,
   Plus,
-  Crown,
   AlertCircle,
   CheckCircle,
 } from 'lucide-react'
@@ -25,7 +23,6 @@ interface OrganizationOption {
   id: string
   name: string
   type: 'league'
-  primaryColor: string
   memberCount: number
   auctionCount: number
   userRole: OrganizationRole
@@ -36,7 +33,6 @@ interface OrganizationSelectStepProps {
   data: {
     organizationId?: string
     organizationName?: string
-    inheritBranding?: boolean
     restrictToMembers?: boolean
   }
   onUpdate: (data: any) => void
@@ -118,7 +114,6 @@ export function OrganizationSelectStep({
           id: league.id,
           name: league.name,
           type: 'league',
-          primaryColor: league.primary_color,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
           userRole: 'OWNER',
@@ -136,7 +131,6 @@ export function OrganizationSelectStep({
           id: league.id,
           name: league.name,
           type: 'league',
-          primaryColor: league.primary_color,
           memberCount: league.league_memberships?.[0]?.count ?? 0,
           auctionCount: league.auctions?.[0]?.count ?? 0,
           userRole: membership.role as OrganizationRole,
@@ -176,29 +170,9 @@ export function OrganizationSelectStep({
       leagueName: org.name,
       organizationId: org.id,
       organizationName: org.name,
-      inheritBranding: true,
       restrictToMembers: false
     })
   }
-
-  const getRoleIcon = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return <Crown className="h-4 w-4 text-warning-foreground" />
-      case 'MEMBER':
-        return <Users className="h-4 w-4 text-muted-foreground" />
-    }
-  }
-
-  const getRoleBadgeColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'bg-warning/10 text-warning-foreground'
-      case 'MEMBER':
-        return 'bg-muted text-foreground'
-    }
-  }
-
 
   if (isLoading) {
     return (
@@ -260,8 +234,7 @@ export function OrganizationSelectStep({
                         <div className="flex items-start justify-between">
                           <div className="flex items-center space-x-3">
                             <div
-                              className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-                              style={{ backgroundColor: org.primaryColor }}
+                              className="w-10 h-10 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground"
                             >
                               {org.name.charAt(0)}
                             </div>
@@ -293,9 +266,8 @@ export function OrganizationSelectStep({
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <Badge className={`text-xs ${getRoleBadgeColor(org.userRole)}`}>
-                              {getRoleIcon(org.userRole)}
-                              <span className="ml-1">{org.userRole}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {org.userRole}
                             </Badge>
                           </div>
                         </div>
@@ -322,19 +294,6 @@ export function OrganizationSelectStep({
             <Label className="text-base font-semibold">Organization Settings</Label>
 
             <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  id="inheritBranding"
-                  checked={data.inheritBranding || false}
-                  onChange={(e) => onUpdate({ ...data, inheritBranding: e.target.checked })}
-                  className="h-4 w-4 text-primary rounded"
-                />
-                <Label htmlFor="inheritBranding" className="text-sm">
-                  Use organization's branding and colors
-                </Label>
-              </div>
-
               <div className="flex items-center space-x-3">
                 <input
                   type="checkbox"

@@ -32,7 +32,7 @@ export async function GET(
       .select(`
         *,
         user:users!user_id(id, name, email, image),
-        team:teams!team_id(id, name, primary_color)
+        team:teams!team_id(id, name)
       `)
       .eq('auction_id', auctionId)
       .order('role', { ascending: true })
@@ -54,7 +54,6 @@ export async function GET(
       team: p.team ? {
         id: p.team.id,
         name: p.team.name,
-        primaryColor: p.team.primary_color,
       } : null,
     }))
 

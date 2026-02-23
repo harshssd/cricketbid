@@ -25,9 +25,6 @@ export const auctionConfigSchema = z.object({
 // Team configuration validation
 export const teamSchema = z.object({
   name: z.string().min(1, 'Team name is required').max(50, 'Team name too long'),
-  primaryColor: z.string().regex(/^#[0-9A-F]{6}$/i, 'Invalid color format'),
-  secondaryColor: z.string().regex(/^#[0-9A-F]{6}$/i, 'Invalid color format'),
-  logo: z.string().url().optional(),
   captainEmail: z.string().email('Invalid email format').optional(),
 })
 

@@ -12,7 +12,6 @@ import {
   Users,
   Settings,
   Plus,
-  Crown,
   Mail,
   Activity,
   ArrowLeft,
@@ -159,9 +158,6 @@ export default function LeaguesDashboard() {
         name: leagueData.name,
         description: leagueData.description,
         type: leagueData.type,
-        status: leagueData.status,
-        logo: leagueData.logo,
-        primaryColor: leagueData.primary_color,
         visibility: leagueData.visibility,
         startDate: leagueData.start_date ? new Date(leagueData.start_date) : undefined,
         endDate: leagueData.end_date ? new Date(leagueData.end_date) : undefined,
@@ -314,37 +310,6 @@ export default function LeaguesDashboard() {
     )
   }
 
-  const getRoleIcon = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return <Crown className="h-4 w-4 text-warning" />
-      default:
-        return <Users className="h-4 w-4 text-muted-foreground" />
-    }
-  }
-
-  const getRoleBadgeColor = (role: OrganizationRole) => {
-    switch (role) {
-      case 'OWNER':
-        return 'bg-warning/10 text-warning'
-      default:
-        return 'bg-muted text-muted-foreground'
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'COMPLETED':
-        return <Badge className="bg-success/10 text-success">Completed</Badge>
-      case 'LIVE':
-        return <Badge className="bg-destructive/10 text-destructive">Live</Badge>
-      case 'SCHEDULED':
-        return <Badge className="bg-info/10 text-info-foreground">Scheduled</Badge>
-      default:
-        return <Badge variant="secondary">Draft</Badge>
-    }
-  }
-
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -360,8 +325,7 @@ export default function LeaguesDashboard() {
               </Link>
               <div className="flex items-center space-x-3">
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold"
-                  style={{ backgroundColor: league.primaryColor }}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center font-bold bg-primary text-primary-foreground"
                 >
                   {league.name.charAt(0)}
                 </div>
@@ -414,9 +378,8 @@ export default function LeaguesDashboard() {
                 </div>
               </div>
               <div className="text-right">
-                <Badge className={`${getRoleBadgeColor(league.userRole)} mb-2`}>
-                  {getRoleIcon(league.userRole)}
-                  <span className="ml-1">{league.userRole}</span>
+                <Badge variant="secondary" className="mb-2">
+                  {league.userRole}
                 </Badge>
                 <p className="text-sm text-blue-100">
                   {league.type.charAt(0) + league.type.slice(1).toLowerCase()} League
@@ -466,7 +429,7 @@ export default function LeaguesDashboard() {
                           </div>
                         </div>
                         <div className="flex items-center space-x-3">
-                          {getStatusBadge(auction.status)}
+                          <Badge variant="secondary">{auction.status}</Badge>
                           <Button variant="outline" size="sm" asChild>
                             <Link href={`/auction/${auction.id}`}>
                               <ExternalLink className="h-4 w-4 mr-2" />
@@ -573,7 +536,7 @@ export default function LeaguesDashboard() {
                           <div className="text-xs text-muted-foreground">{member.email}</div>
                         </div>
                       </div>
-                      <Badge className={`text-xs ${getRoleBadgeColor(member.role)}`}>
+                      <Badge variant="secondary" className="text-xs">
                         {member.role}
                       </Badge>
                     </div>
@@ -609,12 +572,6 @@ export default function LeaguesDashboard() {
                     <span className="text-muted-foreground">Type</span>
                     <span>{league.type}</span>
                   </div>
-                  {league.status && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Status</span>
-                      <Badge variant="secondary">{league.status}</Badge>
-                    </div>
-                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Created</span>
                     <span>{league.createdAt.toLocaleDateString()}</span>
@@ -705,7 +662,7 @@ export default function LeaguesDashboard() {
                       </div>
                     </div>
                   </div>
-                  <Badge className={`${getRoleBadgeColor(member.role)}`}>
+                  <Badge variant="secondary">
                     {member.role}
                   </Badge>
                 </div>
@@ -757,14 +714,6 @@ export default function LeaguesDashboard() {
                     <Badge variant="secondary">{league?.visibility}</Badge>
                   </div>
                 </div>
-                {league?.status && (
-                  <div>
-                    <Label>Status</Label>
-                    <div className="mt-2">
-                      <Badge variant="secondary">{league.status}</Badge>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 

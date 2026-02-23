@@ -11,9 +11,6 @@ const createAuctionSchema = z.object({
   config: auctionConfigSchema,
   teams: z.array(z.object({
     name: z.string().min(1, 'Team name is required'),
-    primaryColor: z.string().default('#3B82F6'),
-    secondaryColor: z.string().default('#1B2A4A'),
-    logo: z.string().optional(),
   })).optional().default([]),
   tiers: z.array(z.object({
     name: z.string().min(1, 'Tier name is required'),
@@ -24,9 +21,6 @@ const createAuctionSchema = z.object({
     maxPerTeam: z.number().optional(),
     sortOrder: z.number().min(0),
   })).optional(),
-  logo: z.string().optional(),
-  primaryColor: z.string().default('#1B2A4A'),
-  secondaryColor: z.string().default('#3B82F6'),
 })
 
 export async function POST(request: NextRequest) {
@@ -68,9 +62,6 @@ export async function POST(request: NextRequest) {
         currency_name: validatedData.config.currencyName,
         currency_icon: validatedData.config.currencyIcon,
         squad_size: validatedData.config.squadSize,
-        logo: validatedData.logo,
-        primary_color: validatedData.primaryColor || '#1B2A4A',
-        secondary_color: validatedData.secondaryColor || '#3B82F6',
         status: 'DRAFT',
       })
       .select()
@@ -84,9 +75,6 @@ export async function POST(request: NextRequest) {
       const teamRows = validatedData.teams.map((team) => ({
         auction_id: auction.id,
         name: team.name,
-        primary_color: team.primaryColor,
-        secondary_color: team.secondaryColor,
-        logo: team.logo,
         budget_remaining: validatedData.config.budgetPerTeam,
       }))
 

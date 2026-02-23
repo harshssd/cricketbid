@@ -8,9 +8,6 @@ export interface AuctionListItem {
   description?: string
   status: 'DRAFT' | 'LOBBY' | 'LIVE' | 'COMPLETED' | 'ARCHIVED'
   visibility: 'PUBLIC' | 'PRIVATE'
-  primaryColor: string
-  secondaryColor: string
-  logo?: string
   budgetPerTeam: number
   currencyName: string
   currencyIcon: string

@@ -7,8 +7,7 @@ export type PlayerStatus = 'AVAILABLE' | 'SOLD' | 'UNSOLD'
 export type RoundStatus = 'PENDING' | 'OPEN' | 'CLOSED'
 
 // Organization types
-export type LeagueType = 'TOURNAMENT' | 'LEAGUE' | 'SEASONAL' | 'CHAMPIONSHIP'
-export type LeagueStatus = 'PLANNED' | 'ONGOING' | 'COMPLETED'
+export type LeagueType = 'TOURNAMENT' | 'LEAGUE'
 export type OrganizationRole = 'OWNER' | 'MEMBER'
 
 // Configuration Types
@@ -46,14 +45,12 @@ export interface PlayerData {
   battingStyle?: string
   bowlingStyle?: string
   customTags?: string
+  userId?: string
 }
 
 // Team Types
 export interface TeamData {
   name: string
-  primaryColor: string
-  secondaryColor: string
-  logo?: string
   captainEmail?: string
 }
 
@@ -92,9 +89,6 @@ export interface LeagueData {
   name: string
   description?: string
   type: LeagueType
-  status?: LeagueStatus
-  logo?: string
-  primaryColor: string
   visibility: Visibility
   startDate?: Date
   endDate?: Date
@@ -104,8 +98,6 @@ export interface LeagueData {
 export interface ClubData {
   name: string
   description?: string
-  logo?: string
-  primaryColor: string
   visibility: Visibility
 }
 

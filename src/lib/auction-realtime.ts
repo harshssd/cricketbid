@@ -35,6 +35,7 @@ class AuctionRealtimeManager {
   private currentAuctionId: string | null = null
   private onStateChangeCallbacks: ((state: AuctionState) => void)[] = []
   private onBidsChangeCallbacks: ((bids: Record<string, PlayerBid>) => void)[] = []
+  private onBidUpdateCallbacks: ((payload: { roundId: string; teamId: string; teamName: string; amount: number }) => void)[] = []
 
   // Subscribe to auction state changes
   subscribeToAuction(auctionId: string) {
@@ -48,12 +49,26 @@ class AuctionRealtimeManager {
     this.channel = this.supabase.channel(`auction-${auctionId}`)
 
     // Listen for auction state broadcasts
+    // Supabase broadcast: channel.send({ type, event, payload }) -> listener receives { event, payload }
     ;(this.channel as any)
-      .on('broadcast', { event: 'auction-state' }, (payload: { state: AuctionState }) => {
-        this.onStateChangeCallbacks.forEach(callback => callback(payload.state))
+      .on('broadcast', { event: 'auction-state' }, (msg: any) => {
+        // payload contains the AuctionState fields directly
+        const state = msg?.payload
+        if (state && state.auctionQueue) {
+          this.onStateChangeCallbacks.forEach(callback => callback(state))
+        }
       })
-      .on('broadcast', { event: 'auction-bids' }, (payload: { bids: Record<string, PlayerBid> }) => {
-        this.onBidsChangeCallbacks.forEach(callback => callback(payload.bids))
+      .on('broadcast', { event: 'auction-bids' }, (msg: any) => {
+        const bids = msg?.payload?.bids
+        if (bids) {
+          this.onBidsChangeCallbacks.forEach(callback => callback(bids))
+        }
+      })
+      .on('broadcast', { event: 'bid-update' }, (msg: any) => {
+        const data = msg?.payload
+        if (data?.teamId) {
+          this.onBidUpdateCallbacks.forEach(callback => callback(data))
+        }
       })
       .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
@@ -75,7 +90,7 @@ class AuctionRealtimeManager {
     await this.channel.send({
       type: 'broadcast',
       event: 'auction-state',
-      state: {
+      payload: {
         ...state,
         lastUpdated: new Date().toISOString()
       }
@@ -94,7 +109,7 @@ class AuctionRealtimeManager {
     await this.channel.send({
       type: 'broadcast',
       event: 'auction-bids',
-      bids: allBids
+      payload: { bids: allBids }
     })
   }
 
@@ -110,8 +125,13 @@ class AuctionRealtimeManager {
     await this.channel?.send({
       type: 'broadcast',
       event: 'auction-bids',
-      bids: {}
+      payload: { bids: {} }
     })
+  }
+
+  // Public method to refresh state (e.g. after receiving bid-update from bidder view)
+  async refreshState() {
+    return this.requestCurrentState()
   }
 
   // Request current state from server
@@ -192,6 +212,10 @@ class AuctionRealtimeManager {
 
   onBidsChange(callback: (bids: Record<string, PlayerBid>) => void) {
     this.onBidsChangeCallbacks.push(callback)
+  }
+
+  onBidUpdate(callback: (payload: { roundId: string; teamId: string; teamName: string; amount: number }) => void) {
+    this.onBidUpdateCallbacks.push(callback)
   }
 
   // Cleanup

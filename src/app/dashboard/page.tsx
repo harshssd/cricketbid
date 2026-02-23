@@ -51,7 +51,6 @@ interface DashboardData {
 interface ClubSummary {
   id: string
   name: string
-  primaryColor: string
   memberCount: number
   leagueCount: number
   isOwner: boolean
@@ -61,8 +60,6 @@ interface LeagueSummary {
   id: string
   name: string
   type: string
-  status: string
-  primaryColor: string
   memberCount: number
   auctionCount: number
   isOwner: boolean
@@ -166,7 +163,6 @@ export default function DashboardPage() {
       const clubsData: ClubSummary[] = (ownedClubsData || []).map((club: any) => ({
         id: club.id,
         name: club.name,
-        primaryColor: club.primary_color,
         memberCount: club.club_memberships?.[0]?.count || 0,
         leagueCount: club.leagues?.[0]?.count || 0,
         isOwner: true
@@ -176,8 +172,6 @@ export default function DashboardPage() {
         id: league.id,
         name: league.name,
         type: league.type,
-        status: league.status || 'PLANNED',
-        primaryColor: league.primary_color,
         memberCount: league.league_memberships?.[0]?.count || 0,
         auctionCount: league.auctions?.[0]?.count || 0,
         isOwner: true
@@ -481,8 +475,7 @@ export default function DashboardPage() {
                         <div key={club.id} className="flex items-center justify-between p-3 border rounded-lg">
                           <div className="flex items-center space-x-3">
                             <div
-                              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-                              style={{ backgroundColor: club.primaryColor }}
+                              className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm bg-primary text-primary-foreground"
                             >
                               {club.name.charAt(0)}
                             </div>
@@ -547,8 +540,7 @@ export default function DashboardPage() {
                         <div key={league.id} className="flex items-center justify-between p-3 border rounded-lg">
                           <div className="flex items-center space-x-3">
                             <div
-                              className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-                              style={{ backgroundColor: league.primaryColor }}
+                              className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm bg-primary text-primary-foreground"
                             >
                               {league.name.charAt(0)}
                             </div>

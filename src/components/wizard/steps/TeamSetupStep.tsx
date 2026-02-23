@@ -6,9 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { ColorPicker } from '@/components/ui/color-picker'
 import { TeamsFormData, TeamFormData } from '@/lib/validations/auction'
-import { Users, Mail, Palette, Trophy } from 'lucide-react'
+import { Users, Mail, Trophy } from 'lucide-react'
 import { createBrowserClient } from '@supabase/ssr'
 
 interface TeamSetupStepProps {
@@ -57,15 +56,12 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
       if (auctionData) {
         const { data: teamsData } = await supabase
           .from('teams')
-          .select('name, primary_color, secondary_color, logo')
+          .select('name')
           .eq('auction_id', auctionData.id)
 
         if (teamsData && teamsData.length > 0) {
           const leagueTeams: TeamsFormData = teamsData.map(t => ({
             name: t.name,
-            primaryColor: t.primary_color || '#3B82F6',
-            secondaryColor: t.secondary_color || '#1B2A4A',
-            logo: t.logo || undefined,
             captainEmail: undefined,
           }))
           onChange(leagueTeams)
@@ -97,23 +93,10 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
     return errors[`teams.${teamIndex}.${field}`]?.[0] || errors[`${teamIndex}.${field}`]?.[0]
   }
 
-  const defaultColors = [
-    { primary: '#3B82F6', secondary: '#1B2A4A' }, // Blue
-    { primary: '#EF4444', secondary: '#7F1D1D' }, // Red
-    { primary: '#10B981', secondary: '#064E3B' }, // Green
-    { primary: '#F59E0B', secondary: '#78350F' }, // Yellow
-    { primary: '#8B5CF6', secondary: '#3730A3' }, // Purple
-    { primary: '#EC4899', secondary: '#7C2D12' }, // Pink
-    { primary: '#06B6D4', secondary: '#0C4A6E' }, // Cyan
-    { primary: '#84CC16', secondary: '#365314' }, // Lime
-  ]
-
   const resetToDefaults = () => {
     const resetTeams = teams.map((team, index) => ({
       ...team,
       name: `Team ${index + 1}`,
-      primaryColor: defaultColors[index % defaultColors.length].primary,
-      secondaryColor: defaultColors[index % defaultColors.length].secondary,
     }))
     onChange(resetTeams)
   }
@@ -166,13 +149,7 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
           {teams.map((team, index) => (
             <Card key={index} className="relative">
               <CardHeader className="pb-3">
-                <div className="flex items-center space-x-2">
-                  <div
-                    className="w-4 h-4 rounded-full border"
-                    style={{ backgroundColor: team.primaryColor }}
-                  />
-                  <CardTitle className="text-lg">Team {index + 1}</CardTitle>
-                </div>
+                <CardTitle className="text-lg">Team {index + 1}</CardTitle>
                 <CardDescription>
                   Configure team identity and assign a captain
                 </CardDescription>
@@ -217,68 +194,6 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
                   </div>
                 </div>
 
-                {/* Color Configuration */}
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <Palette className="h-4 w-4 text-muted-foreground" />
-                    <Label>Team Colors</Label>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor={`primary-color-${index}`} className="text-sm">Primary Color</Label>
-                      <div className="flex items-center space-x-2">
-                        <ColorPicker
-                          value={team.primaryColor || defaultColors[index % defaultColors.length].primary}
-                          onChange={(color) => handleTeamChange(index, 'primaryColor', color)}
-                        />
-                        <Input
-                          id={`primary-color-${index}`}
-                          value={team.primaryColor || ''}
-                          onChange={(e) => handleTeamChange(index, 'primaryColor', e.target.value)}
-                          placeholder="#3B82F6"
-                          className="text-xs font-mono"
-                          maxLength={7}
-                        />
-                      </div>
-                      {getFieldError(index, 'primaryColor') && (
-                        <p className="text-sm text-destructive">{getFieldError(index, 'primaryColor')}</p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`secondary-color-${index}`} className="text-sm">Secondary Color</Label>
-                      <div className="flex items-center space-x-2">
-                        <ColorPicker
-                          value={team.secondaryColor || defaultColors[index % defaultColors.length].secondary}
-                          onChange={(color) => handleTeamChange(index, 'secondaryColor', color)}
-                        />
-                        <Input
-                          id={`secondary-color-${index}`}
-                          value={team.secondaryColor || ''}
-                          onChange={(e) => handleTeamChange(index, 'secondaryColor', e.target.value)}
-                          placeholder="#1B2A4A"
-                          className="text-xs font-mono"
-                          maxLength={7}
-                        />
-                      </div>
-                      {getFieldError(index, 'secondaryColor') && (
-                        <p className="text-sm text-destructive">{getFieldError(index, 'secondaryColor')}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Color Preview */}
-                  <div className="flex items-center space-x-2 p-2 rounded border bg-muted">
-                    <div
-                      className="w-8 h-8 rounded border shadow-sm"
-                      style={{
-                        background: `linear-gradient(135deg, ${team.primaryColor} 0%, ${team.secondaryColor} 100%)`
-                      }}
-                    />
-                    <span className="text-sm text-muted-foreground">Color preview</span>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           ))}
@@ -299,9 +214,6 @@ export function TeamSetupStep({ teams, teamCount, onChange, onInitialize, league
               </li>
               <li>
                 <strong>Captain Emails:</strong> Captains will receive auction invites and have bidding access
-              </li>
-              <li>
-                <strong>Colors:</strong> Distinct colors help identify teams during live drafts and result displays
               </li>
               <li>
                 <strong>Add Captains Later:</strong> You can always add or change captain emails after creating the auction

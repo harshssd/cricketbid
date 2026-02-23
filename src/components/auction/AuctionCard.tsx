@@ -16,17 +16,6 @@ interface AuctionCardProps {
 }
 
 export function AuctionCard({ auction }: AuctionCardProps) {
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'LIVE': return 'bg-red-500 text-white'
-      case 'LOBBY': return 'bg-yellow-500 text-white'
-      case 'COMPLETED': return 'bg-green-500 text-white'
-      case 'DRAFT': return 'bg-gray-500 text-white'
-      case 'ARCHIVED': return 'bg-slate-400 text-white'
-      default: return 'bg-gray-500 text-white'
-    }
-  }
-
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'LIVE': return <Zap className="h-3 w-3" />
@@ -77,27 +66,16 @@ export function AuctionCard({ auction }: AuctionCardProps) {
     }
   }
 
-  const cardStyle = {
-    background: `linear-gradient(135deg, ${auction.primaryColor}, ${auction.secondaryColor})`
-  }
-
   return (
     <Card className="group hover:shadow-lg transition-shadow duration-200 overflow-hidden">
       {/* Header with background */}
       <div
-        className="h-32 relative text-white p-4 flex flex-col justify-between"
-        style={cardStyle}
+        className="h-32 relative text-white p-4 flex flex-col justify-between bg-gradient-to-br from-slate-700 to-slate-900"
       >
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            {auction.logo && (
-              <Avatar className="h-8 w-8 ring-2 ring-white/20">
-                <AvatarImage src={auction.logo} alt={auction.name} />
-                <AvatarFallback>{auction.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-              </Avatar>
-            )}
             <div>
-              <Badge className={`${getStatusColor(auction.status)} text-xs`}>
+              <Badge variant="secondary" className="text-xs">
                 {getStatusIcon(auction.status)}
                 {auction.status}
               </Badge>
