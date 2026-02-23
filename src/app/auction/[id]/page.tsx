@@ -31,7 +31,7 @@ import {
   Ungroup
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { auctionRealtimeManager, type AuctionState, type PlayerBid } from '@/lib/auction-realtime'
+import { auctionRealtimeManager, type AuctionState, type FormalBid } from '@/lib/auction-realtime'
 import { AuctionTeamManager } from '@/components/teams/AuctionTeamManager'
 import { PlayerImport } from '@/components/auction/PlayerImport'
 
@@ -133,9 +133,8 @@ function SetupSection({
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
         onClick={onToggle}
       >
-        <div className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${
-          badge ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'
-        }`}>
+        <div className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${badge ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'
+          }`}>
           {badge ? <CheckCircle2 className="w-3.5 h-3.5" /> : number}
         </div>
         <span className="font-semibold text-sm flex-1">{title}</span>
@@ -190,7 +189,7 @@ export default function AuctionPage() {
     window.location.hash = tab
   }
   const [newPlayerName, setNewPlayerName] = useState('')
-  const [currentBids, setCurrentBids] = useState<Record<string, PlayerBid>>({})
+  const [currentBids, setCurrentBids] = useState<Record<string, FormalBid>>({})
   const [roundBids, setRoundBids] = useState<Array<{ id: string; teamId: string; teamName: string; amount: number; submittedAt: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -282,7 +281,7 @@ export default function AuctionPage() {
     setCustomMixGroups(prev => {
       if (swapIndex < 0 || swapIndex >= prev.length) return prev
       const updated = [...prev]
-      ;[updated[index], updated[swapIndex]] = [updated[swapIndex], updated[index]]
+        ;[updated[index], updated[swapIndex]] = [updated[swapIndex], updated[index]]
       return updated
     })
   }
@@ -335,27 +334,25 @@ export default function AuctionPage() {
     return shuffled
   }
 
-  // Save auction runtime state to database
-  const persistAuctionState = async (state: AuctionState) => {
+  // Execute an auction action (SOLD/UNSOLD/DEFER/UNDO) atomically on the server
+  const executeAction = async (
+    action: 'SOLD' | 'UNSOLD' | 'DEFER' | 'UNDO',
+    extra?: { teamId?: string; amount?: number }
+  ): Promise<AuctionState | null> => {
     try {
-      await fetch(`/api/auctions/${auctionId}/state`, {
-        method: 'PUT',
+      const res = await fetch(`/api/auctions/${auctionId}/action`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runtimeState: state })
+        body: JSON.stringify({ action, ...extra }),
       })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        console.error(`Action ${action} failed:`, errData.error)
+        return null
+      }
+      return (await res.json()) as AuctionState
     } catch (e) {
-      console.error('Failed to persist auction state:', e)
-    }
-  }
-
-  // Load auction runtime state from database
-  const loadPersistedState = async (): Promise<AuctionState | null> => {
-    try {
-      const response = await fetch(`/api/auctions/${auctionId}/state`)
-      if (!response.ok) return null
-      const data = await response.json()
-      return data.runtimeState as AuctionState | null
-    } catch {
+      console.error(`Failed to execute ${action}:`, e)
       return null
     }
   }
@@ -378,7 +375,7 @@ export default function AuctionPage() {
   useEffect(() => {
     if (auction?.auctionStarted && activeTab === 'auction') {
       fetchRoundBids()
-      bidPollRef.current = setInterval(fetchRoundBids, 2000)
+      bidPollRef.current = setInterval(fetchRoundBids, 12000)
     }
     return () => {
       if (bidPollRef.current) clearInterval(bidPollRef.current)
@@ -434,7 +431,7 @@ export default function AuctionPage() {
         const response = await fetch(`/api/auctions/${auctionId}`)
         if (response.ok) {
           const auctionData = await response.json()
-          const persistedState = await loadPersistedState()
+          const queueState = auctionData.queueState || {}
 
           // Collect captain player names to exclude from auction
           const captainPlayerIds = new Set(
@@ -442,39 +439,61 @@ export default function AuctionPage() {
               .map((t: any) => t.captainPlayerId)
               .filter(Boolean)
           )
-          const captainPlayerNames = new Set(
-            (auctionData.teams || [])
-              .filter((t: any) => t.captainPlayer)
-              .map((t: any) => t.captainPlayer.name)
-          )
 
-          let finalAuction: AuctionState
+          // Build soldPlayers from teams' auction_results (canonical source)
+          const soldPlayers: AuctionState['soldPlayers'] = []
+          for (const team of auctionData.teams || []) {
+            for (const player of team.players || []) {
+              soldPlayers.push({
+                playerId: player.id,
+                playerName: player.name,
+                teamId: team.id,
+                teamName: team.name,
+                price: player.price || 0,
+              })
+            }
+          }
 
-          if (persistedState && persistedState.auctionStarted && auctionData.status === 'LIVE') {
-            // Filter captain players from the persisted queue
-            let queue = persistedState.auctionQueue
-            let idx = persistedState.auctionIndex
-            if (captainPlayerNames.size > 0) {
-              const currentPlayerName = queue[idx]
-              queue = queue.filter((name: string) => !captainPlayerNames.has(name))
-              const newIdx = currentPlayerName ? queue.indexOf(currentPlayerName) : -1
-              idx = newIdx >= 0 ? newIdx : Math.min(idx, Math.max(0, queue.length - 1))
-            }
-            finalAuction = {
-              ...persistedState,
-              name: auctionData.name,
-              auctionQueue: queue,
-              auctionIndex: idx,
-            }
+          // Build team state with IDs
+          const apiTeams = (auctionData.teams || []).map((team: any) => ({
+            id: team.id,
+            name: team.name,
+            coins: team.budgetRemaining ?? auctionData.budgetPerTeam,
+            originalCoins: auctionData.budgetPerTeam,
+            players: (team.players || []).map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              price: p.price || 0,
+            })),
+          }))
+
+          const isLive = queueState.auctionStarted && auctionData.status === 'LIVE'
+
+          const finalAuction: AuctionState = {
+            id: auctionData.id,
+            name: auctionData.name,
+            status: auctionData.status,
+            teams: apiTeams,
+            currentRound: null,
+            soldPlayers,
+            unsoldPlayers: queueState.unsoldPlayers || [],
+            deferredPlayers: queueState.deferredPlayers || [],
+            auctionHistory: queueState.auctionHistory || [],
+            auctionQueue: queueState.auctionQueue || [],
+            auctionIndex: queueState.auctionIndex ?? 0,
+            auctionStarted: queueState.auctionStarted ?? false,
+            lastUpdated: new Date().toISOString(),
+          }
+
+          if (isLive) {
             setActiveTab('auction')
 
             // Re-open round on page load if LIVE but no OPEN round exists
+            const idx = finalAuction.auctionIndex
+            const queue = finalAuction.auctionQueue
             if (idx < queue.length && auctionData.players) {
               const currentName = queue[idx]
-              const filteredPlayers = captainPlayerIds.size > 0
-                ? auctionData.players.filter((p: any) => !captainPlayerIds.has(p.id))
-                : auctionData.players
-              const currentApiPlayer = filteredPlayers.find((p: any) => p.name === currentName)
+              const currentApiPlayer = auctionData.players.find((p: any) => p.name === currentName)
               if (currentApiPlayer) {
                 fetch(`/api/auctions/${auctionId}/round`, {
                   method: 'POST',
@@ -486,33 +505,9 @@ export default function AuctionPage() {
                 }).catch(e => console.error('Failed to re-open round on load:', e))
               }
             }
-          } else {
-            finalAuction = {
-              id: auctionData.id,
-              name: auctionData.name,
-              teams: auctionData.teams?.map((team: any) => ({
-                name: team.name,
-                coins: team.budgetRemaining || auctionData.budgetPerTeam,
-                originalCoins: auctionData.budgetPerTeam,
-                players: []
-              })) || [],
-              auctionQueue: [],
-              auctionIndex: 0,
-              auctionStarted: false,
-              soldPlayers: {},
-              unsoldPlayers: [],
-              deferredPlayers: [],
-              auctionHistory: [],
-              lastUpdated: new Date().toISOString()
-            }
           }
 
           setAuction(finalAuction)
-
-          // Persist corrected state if we filtered captains from a live auction queue
-          if (captainPlayerNames.size > 0 && persistedState && persistedState.auctionStarted && auctionData.status === 'LIVE') {
-            persistAuctionState(finalAuction)
-          }
 
           if (auctionData.tiers) setApiTiers(auctionData.tiers)
           if (auctionData.players) {
@@ -523,7 +518,6 @@ export default function AuctionPage() {
             if (filteredPlayers.length > 0) setPlayerPoolExpanded(false)
           }
           if (auctionData.playerStats) {
-            // Adjust player stats to exclude captain players
             const captainCount = captainPlayerIds.size
             setApiPlayerStats({
               ...auctionData.playerStats,
@@ -552,7 +546,13 @@ export default function AuctionPage() {
 
     loadAuctionData()
     auctionRealtimeManager.subscribeToAuction(auctionId)
-    auctionRealtimeManager.onAuctionStateChange(setAuction)
+    // The auctioneer is the source of truth — don't let the realtime manager
+    // overwrite local state. Only merge team budget data from the formal model
+    // (useful if another admin view updates budgets). Ignore all other fields.
+    auctionRealtimeManager.onAuctionStateChange(() => {
+      // No-op: auctioneer manages its own state via handleSold/handleUnsold/etc.
+      // Bid updates come through onBidUpdate below.
+    })
     auctionRealtimeManager.onBidsChange(setCurrentBids)
     auctionRealtimeManager.onBidUpdate((payload) => {
       console.log(`Bid update: ${payload.teamName} bid ${payload.amount} on round ${payload.roundId}`)
@@ -565,24 +565,11 @@ export default function AuctionPage() {
     }
   }, [auctionId])
 
-  const saveAuction = async (updatedAuction: AuctionState) => {
+  const broadcastState = async (state: AuctionState) => {
     try {
-      persistAuctionState(updatedAuction)
-      await fetch(`/api/auctions/${auctionId}/teams`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teams: updatedAuction.teams.map(team => ({
-            name: team.name,
-            primaryColor: '#3B82F6',
-            secondaryColor: '#1B2A4A',
-            budgetRemaining: team.coins
-          }))
-        })
-      })
-      await auctionRealtimeManager.broadcastAuctionState(updatedAuction)
+      await auctionRealtimeManager.broadcastAuctionState(state)
     } catch (error) {
-      console.error('Failed to save auction:', error)
+      console.error('Failed to broadcast state:', error)
     }
   }
 
@@ -656,17 +643,28 @@ export default function AuctionPage() {
       await openRound(auctionQueue[0])
     }
 
+    // Save queue state + set status to LIVE
     try {
       await fetch(`/api/auctions/${auctionId}/state`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runtimeState: updatedAuction, status: 'LIVE' })
+        body: JSON.stringify({
+          queueState: {
+            auctionQueue: updatedAuction.auctionQueue,
+            auctionIndex: updatedAuction.auctionIndex,
+            auctionStarted: updatedAuction.auctionStarted,
+            unsoldPlayers: [],
+            deferredPlayers: [],
+            auctionHistory: [],
+          },
+          status: 'LIVE',
+        })
       })
     } catch (e) {
       console.error('Failed to save auction state:', e)
     }
 
-    saveAuction(updatedAuction)
+    broadcastState(updatedAuction)
   }
 
   // --- Auction action handlers ---
@@ -677,218 +675,52 @@ export default function AuctionPage() {
     const playerName = auction.auctionQueue[auction.auctionIndex]
     const price = sellPrice || getPlayerInfo(playerName).basePrice
 
-    // Look up player and team IDs for the sold API
-    const soldPlayer = apiPlayers.find((p: any) => p.name === playerName)
-    // Find teamId from roundBids or look up from API data
+    // Resolve team ID from bids or from auction state
     const matchingBid = roundBids.find(b => b.teamName === sellTeam)
     let soldTeamId = matchingBid?.teamId
-
-    // If no matching bid (manual selection), fetch team ID
-    if (!soldTeamId && soldPlayer) {
-      try {
-        const teamsRes = await fetch(`/api/auctions/${auctionId}`)
-        if (teamsRes.ok) {
-          const data = await teamsRes.json()
-          const matchedTeam = data.teams?.find((t: any) => t.name === sellTeam)
-          soldTeamId = matchedTeam?.id
-        }
-      } catch (e) {
-        console.error('Failed to look up team ID:', e)
-      }
+    if (!soldTeamId) {
+      soldTeamId = auction.teams.find(t => t.name === sellTeam)?.id
     }
+    if (!soldTeamId) return
 
-    // Record sale in database (auction_result + player status + budget)
-    if (soldPlayer && soldTeamId) {
-      try {
-        await fetch(`/api/auctions/${auctionId}/sold`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            playerId: soldPlayer.id,
-            teamId: soldTeamId,
-            amount: price,
-          }),
-        })
-      } catch (e) {
-        console.error('Failed to record sale:', e)
-      }
+    const newState = await executeAction('SOLD', { teamId: soldTeamId, amount: price })
+    if (newState) {
+      setAuction(newState)
+      setSellTeam('')
+      setSellPrice(0)
+      setRoundBids([])
+      broadcastState(newState)
     }
-
-    const updatedTeams = auction.teams.map(team => {
-      if (team.name === sellTeam) {
-        return {
-          ...team,
-          coins: team.coins - price,
-          players: [...team.players, { name: playerName, price }]
-        }
-      }
-      return team
-    })
-
-    const nextIndex = auction.auctionIndex + 1
-
-    let updatedAuction: AuctionState = {
-      ...auction,
-      teams: updatedTeams,
-      soldPlayers: { ...auction.soldPlayers, [playerName]: { team: sellTeam, price } },
-      auctionHistory: [...auction.auctionHistory, { player: playerName, team: sellTeam, price, action: 'SOLD' }],
-      auctionIndex: nextIndex,
-      lastUpdated: new Date().toISOString()
-    }
-
-    // Auto-bring-back deferred players when main round ends
-    if (nextIndex >= auction.auctionQueue.length && auction.deferredPlayers.length > 0) {
-      updatedAuction = {
-        ...updatedAuction,
-        auctionQueue: [...auction.auctionQueue, ...auction.deferredPlayers],
-        deferredPlayers: [],
-      }
-    }
-
-    setAuction(updatedAuction)
-    setSellTeam('')
-    setSellPrice(0)
-    setRoundBids([])
-
-    // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
-    await closeRound()
-    if (nextIndex < updatedAuction.auctionQueue.length) {
-      await openRound(updatedAuction.auctionQueue[nextIndex])
-    }
-
-    saveAuction(updatedAuction)
   }
 
   const handleUnsold = async () => {
     if (!auction) return
-    const playerName = auction.auctionQueue[auction.auctionIndex]
-    const nextIndex = auction.auctionIndex + 1
-
-    let updatedAuction: AuctionState = {
-      ...auction,
-      unsoldPlayers: [...auction.unsoldPlayers, playerName],
-      auctionHistory: [...auction.auctionHistory, { player: playerName, team: '', price: 0, action: 'UNSOLD' }],
-      auctionIndex: nextIndex,
-      lastUpdated: new Date().toISOString()
+    const newState = await executeAction('UNSOLD')
+    if (newState) {
+      setAuction(newState)
+      setRoundBids([])
+      broadcastState(newState)
     }
-
-    // Auto-bring-back deferred players when main round ends
-    if (nextIndex >= auction.auctionQueue.length && auction.deferredPlayers.length > 0) {
-      updatedAuction = {
-        ...updatedAuction,
-        auctionQueue: [...auction.auctionQueue, ...auction.deferredPlayers],
-        deferredPlayers: [],
-      }
-    }
-
-    setAuction(updatedAuction)
-    setRoundBids([])
-
-    // Close current round, open next — BEFORE broadcasting so bidders find the round in DB
-    await closeRound()
-    if (nextIndex < updatedAuction.auctionQueue.length) {
-      await openRound(updatedAuction.auctionQueue[nextIndex])
-    }
-
-    saveAuction(updatedAuction)
   }
 
   const handleDefer = async () => {
     if (!auction) return
-    const playerName = auction.auctionQueue[auction.auctionIndex]
-
-    const newQueue = [...auction.auctionQueue]
-    newQueue.splice(auction.auctionIndex, 1)
-
-    let updatedAuction: AuctionState = {
-      ...auction,
-      auctionQueue: newQueue,
-      deferredPlayers: [...auction.deferredPlayers, playerName],
-      auctionHistory: [...auction.auctionHistory, { player: playerName, team: '', price: 0, action: 'DEFERRED' }],
-      lastUpdated: new Date().toISOString()
+    const newState = await executeAction('DEFER')
+    if (newState) {
+      setAuction(newState)
+      setRoundBids([])
+      broadcastState(newState)
     }
-
-    // Auto-bring-back deferred players when main round ends
-    if (auction.auctionIndex >= newQueue.length && updatedAuction.deferredPlayers.length > 0) {
-      updatedAuction = {
-        ...updatedAuction,
-        auctionQueue: [...newQueue, ...updatedAuction.deferredPlayers],
-        deferredPlayers: [],
-      }
-    }
-
-    setAuction(updatedAuction)
-    setRoundBids([])
-
-    // Close round, open for new current player — BEFORE broadcasting so bidders find the round in DB
-    await closeRound()
-    if (auction.auctionIndex < updatedAuction.auctionQueue.length) {
-      await openRound(updatedAuction.auctionQueue[auction.auctionIndex])
-    }
-
-    saveAuction(updatedAuction)
   }
 
   const handleUndoLast = async () => {
     if (!auction || auction.auctionHistory.length === 0) return
-    const lastAction = auction.auctionHistory[auction.auctionHistory.length - 1]
-    const newHistory = auction.auctionHistory.slice(0, -1)
-
-    let updatedAuction: AuctionState = {
-      ...auction,
-      auctionHistory: newHistory,
-      lastUpdated: new Date().toISOString()
+    const newState = await executeAction('UNDO')
+    if (newState) {
+      setAuction(newState)
+      setRoundBids([])
+      broadcastState(newState)
     }
-
-    if (lastAction.action === 'SOLD') {
-      const updatedTeams = auction.teams.map(team => {
-        if (team.name === lastAction.team) {
-          return {
-            ...team,
-            coins: team.coins + lastAction.price,
-            players: team.players.filter(p => p.name !== lastAction.player)
-          }
-        }
-        return team
-      })
-      const { [lastAction.player]: _, ...remainingSold } = auction.soldPlayers
-      updatedAuction = {
-        ...updatedAuction,
-        teams: updatedTeams,
-        soldPlayers: remainingSold,
-        auctionIndex: auction.auctionIndex - 1,
-      }
-    } else if (lastAction.action === 'UNSOLD') {
-      updatedAuction = {
-        ...updatedAuction,
-        unsoldPlayers: auction.unsoldPlayers.filter(p => p !== lastAction.player),
-        auctionIndex: auction.auctionIndex - 1,
-      }
-    } else if (lastAction.action === 'DEFERRED') {
-      const newQueue = [...auction.auctionQueue]
-      const deferredIdx = newQueue.lastIndexOf(lastAction.player)
-      if (deferredIdx !== -1) {
-        newQueue.splice(deferredIdx, 1)
-      }
-      newQueue.splice(auction.auctionIndex, 0, lastAction.player)
-      updatedAuction = {
-        ...updatedAuction,
-        auctionQueue: newQueue,
-        deferredPlayers: auction.deferredPlayers.filter(p => p !== lastAction.player),
-      }
-    }
-
-    setAuction(updatedAuction)
-    setRoundBids([])
-
-    // Close current round, open for restored player — BEFORE broadcasting so bidders find the round in DB
-    await closeRound()
-    const restoredIndex = updatedAuction.auctionIndex
-    if (restoredIndex < updatedAuction.auctionQueue.length) {
-      await openRound(updatedAuction.auctionQueue[restoredIndex])
-    }
-
-    saveAuction(updatedAuction)
   }
 
   // Helper to look up player info by name
@@ -1067,8 +899,17 @@ export default function AuctionPage() {
     )
   }
 
+  // Safe accessors for state fields
+  const auctionTeams = auction.teams || []
+  const auctionSoldPlayers = auction.soldPlayers || []
+  const auctionQueue = auction.auctionQueue || []
+  const auctionHistory = auction.auctionHistory || []
+  const auctionDeferredPlayers = auction.deferredPlayers || []
+  const auctionIndex = auction.auctionIndex ?? 0
+
   // Filter apiPlayers for display: exclude sold players (captains already removed from apiPlayers)
-  const poolPlayers = apiPlayers.filter(p => !auction.soldPlayers?.[p.name])
+  const soldPlayerNames = new Set(auctionSoldPlayers.map(s => s.playerName))
+  const poolPlayers = apiPlayers.filter(p => !soldPlayerNames.has(p.name))
 
   return (
     <div className="min-h-screen bg-muted">
@@ -1079,7 +920,7 @@ export default function AuctionPage() {
             <div>
               <h1 className="text-2xl font-bold text-foreground">{auction.name}</h1>
               <p className="text-sm text-muted-foreground">
-                {auction.teams.length} teams • {poolPlayers.length > 0 ? poolPlayers.length : players.length} players
+                {auctionTeams.length} teams • {poolPlayers.length > 0 ? poolPlayers.length : apiPlayers.length} players
               </p>
             </div>
             <Badge variant={auction.auctionStarted ? 'default' : 'secondary'}>
@@ -1171,7 +1012,7 @@ export default function AuctionPage() {
             <SetupSection
               number={2}
               title="Teams"
-              badge={auction.teams.length > 0 ? `${auction.teams.length} teams` : undefined}
+              badge={auctionTeams.length > 0 ? `${auctionTeams.length} teams` : undefined}
               expanded={teamsExpanded}
               onToggle={() => setTeamsExpanded(!teamsExpanded)}
             >
@@ -1188,27 +1029,49 @@ export default function AuctionPage() {
                   try {
                     const response = await fetch(`/api/auctions/${auctionId}`)
                     const data = await response.json()
+
+                    // Build soldPlayers from team auction results
+                    const soldPlayers: AuctionState['soldPlayers'] = []
+                    for (const team of data.teams || []) {
+                      for (const player of team.players || []) {
+                        soldPlayers.push({
+                          playerId: player.id,
+                          playerName: player.name,
+                          teamId: team.id,
+                          teamName: team.name,
+                          price: player.price || 0,
+                        })
+                      }
+                    }
+
                     const transformedAuction: AuctionState = {
                       id: data.id,
                       name: data.name,
-                      teams: data.teams?.map((team: any) => ({
+                      status: data.status,
+                      teams: (data.teams || []).map((team: any) => ({
+                        id: team.id,
                         name: team.name,
-                        coins: team.budgetRemaining || data.budgetPerTeam,
+                        coins: team.budgetRemaining ?? data.budgetPerTeam,
                         originalCoins: data.budgetPerTeam,
-                        players: team.players?.map((p: any) => ({ name: p.name, price: 0 })) || []
-                      })) || [],
+                        players: (team.players || []).map((p: any) => ({
+                          id: p.id,
+                          name: p.name,
+                          price: p.price || 0,
+                        })),
+                      })),
+                      currentRound: null,
                       auctionQueue: auction.auctionQueue || [],
                       auctionIndex: auction.auctionIndex || 0,
                       auctionStarted: auction.auctionStarted,
-                      soldPlayers: auction.soldPlayers || {},
+                      soldPlayers,
                       unsoldPlayers: auction.unsoldPlayers || [],
                       deferredPlayers: auction.deferredPlayers || [],
                       auctionHistory: auction.auctionHistory || [],
-                      lastUpdated: new Date().toISOString()
+                      lastUpdated: new Date().toISOString(),
                     }
                     setAuction(transformedAuction)
                     if (data.budgetPerTeam) setBudgetPerTeam(data.budgetPerTeam)
-                    auctionRealtimeManager.broadcastAuctionState(transformedAuction)
+                    broadcastState(transformedAuction)
 
                     // Re-filter apiPlayers to exclude newly assigned captains
                     const newCaptainIds = new Set(
@@ -1378,12 +1241,12 @@ export default function AuctionPage() {
                         Start Auction
                       </h3>
                       <p className="text-sm text-muted-foreground mt-1">
-                        {auction.teams.length} team{auction.teams.length !== 1 ? 's' : ''} · {poolPlayers.length > 0 ? poolPlayers.length : players.length} players · Budget: {budgetPerTeam}/team
+                        {auctionTeams.length} team{auctionTeams.length !== 1 ? 's' : ''} · {poolPlayers.length > 0 ? poolPlayers.length : players.length} players · Budget: {budgetPerTeam}/team
                       </p>
                     </div>
                     <Button
                       onClick={handleStartAuction}
-                      disabled={auction.teams.length < 2 || (apiPlayers.length === 0 && players.length === 0)}
+                      disabled={auctionTeams.length < 2 || (apiPlayers.length === 0 && players.length === 0)}
                       className="bg-green-600 hover:bg-green-700"
                       size="lg"
                     >
@@ -1391,13 +1254,13 @@ export default function AuctionPage() {
                       Start Auction
                     </Button>
                   </div>
-                  {auction.teams.length < 2 && (
+                  {auctionTeams.length < 2 && (
                     <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       Need at least 2 teams to start the auction
                     </p>
                   )}
-                  {auction.teams.length >= 2 && apiPlayers.length === 0 && players.length === 0 && (
+                  {auctionTeams.length >= 2 && apiPlayers.length === 0 && players.length === 0 && (
                     <p className="text-xs text-amber-600 mt-3 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       Import players to the player pool before starting
@@ -1511,7 +1374,7 @@ export default function AuctionPage() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {tierPlayers.map((player: any) => (
                                   <div key={player.id} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
-                                       onClick={() => handleEditApiPlayer(player)}>
+                                    onClick={() => handleEditApiPlayer(player)}>
                                     <div className="min-w-0">
                                       <div className="font-medium truncate">{player.name}</div>
                                       <div className="flex flex-wrap gap-1 mt-0.5">
@@ -1578,7 +1441,7 @@ export default function AuctionPage() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {tierPlayers.map((player, index) => (
                                   <div key={index} className="flex items-center justify-between p-2 border rounded hover:bg-muted hover:border-ring transition-colors cursor-pointer group"
-                                       onClick={() => handleEditPlayer(player)}>
+                                    onClick={() => handleEditPlayer(player)}>
                                     <div>
                                       <div className="font-medium">{player.name}</div>
                                       <div className="flex items-center gap-2 mt-1">
@@ -1632,116 +1495,116 @@ export default function AuctionPage() {
           <TabsContent value="auction">
             {auction.auctionStarted ? (
               <>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Main Auction Controls */}
-                <div className="lg:col-span-2 space-y-6">
-                  <NowAuctioningCard
-                    playerName={auction.auctionIndex < auction.auctionQueue.length ? auction.auctionQueue[auction.auctionIndex] : null}
-                    tierLabel={auction.auctionIndex < auction.auctionQueue.length ? getPlayerInfo(auction.auctionQueue[auction.auctionIndex]).tier : ''}
-                    basePrice={auction.auctionIndex < auction.auctionQueue.length ? getPlayerInfo(auction.auctionQueue[auction.auctionIndex]).basePrice : 0}
-                    auctionIndex={auction.auctionIndex}
-                    isComplete={auction.auctionIndex >= auction.auctionQueue.length}
-                    onFinishAuction={() => {}}
-                  >
-                    <AuctionControls
-                      teams={auction.teams}
-                      sellPrice={sellPrice}
-                      onSellPriceChange={setSellPrice}
-                      sellTeam={sellTeam}
-                      onSellTeamChange={setSellTeam}
-                      basePrice={auction.auctionIndex < auction.auctionQueue.length ? getPlayerInfo(auction.auctionQueue[auction.auctionIndex]).basePrice : 0}
-                      onSold={handleSold}
-                      onDefer={handleDefer}
-                      onUnsold={handleUnsold}
-                      onUndoLast={handleUndoLast}
-                      canUndo={auction.auctionHistory.length > 0}
-                      roundBids={roundBids}
-                      onSelectBid={(bid) => {
-                        setSellTeam(bid.teamName)
-                        setSellPrice(bid.amount)
-                      }}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Main Auction Controls */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <NowAuctioningCard
+                      playerName={auctionIndex < auctionQueue.length ? auctionQueue[auctionIndex] : null}
+                      tierLabel={auctionIndex < auctionQueue.length ? getPlayerInfo(auctionQueue[auctionIndex]).tier : ''}
+                      basePrice={auctionIndex < auctionQueue.length ? getPlayerInfo(auctionQueue[auctionIndex]).basePrice : 0}
+                      auctionIndex={auctionIndex}
+                      isComplete={auctionIndex >= auctionQueue.length}
+                      onFinishAuction={() => { }}
+                    >
+                      <AuctionControls
+                        teams={auctionTeams}
+                        sellPrice={sellPrice}
+                        onSellPriceChange={setSellPrice}
+                        sellTeam={sellTeam}
+                        onSellTeamChange={setSellTeam}
+                        basePrice={auctionIndex < auctionQueue.length ? getPlayerInfo(auctionQueue[auctionIndex]).basePrice : 0}
+                        onSold={handleSold}
+                        onDefer={handleDefer}
+                        onUnsold={handleUnsold}
+                        onUndoLast={handleUndoLast}
+                        canUndo={auctionHistory.length > 0}
+                        roundBids={roundBids}
+                        onSelectBid={(bid) => {
+                          setSellTeam(bid.teamName)
+                          setSellPrice(bid.amount)
+                        }}
+                      />
+                    </NowAuctioningCard>
+
+                    <UpNextQueue
+                      queue={auctionQueue}
+                      startIndex={auctionIndex}
+                      getPlayerInfo={getPlayerInfo}
                     />
-                  </NowAuctioningCard>
+                  </div>
 
-                  <UpNextQueue
-                    queue={auction.auctionQueue}
-                    startIndex={auction.auctionIndex}
-                    getPlayerInfo={getPlayerInfo}
-                  />
+                  {/* Sidebar */}
+                  <div className="space-y-6">
+                    <TeamBudgetsSidebar teams={auctionTeams} />
+                    <Button
+                      variant={showSquads ? 'default' : 'outline'}
+                      className="w-full gap-2"
+                      onClick={() => setShowSquads(prev => !prev)}
+                    >
+                      <Users className="w-4 h-4" />
+                      {showSquads ? 'Hide Squads' : 'View Squads'}
+                    </Button>
+                    <AuctionProgressPanel
+                      soldCount={auctionSoldPlayers.length}
+                      remaining={auctionQueue.length - auctionIndex}
+                      deferredCount={auctionDeferredPlayers.length}
+                      progressPercent={auctionQueue.length > 0 ? (auctionIndex / auctionQueue.length) * 100 : 0}
+                      recentSales={auctionHistory}
+                    />
+                    <ShareLinksPanel auctionId={auctionId} auctionName={auction.name} />
+                  </div>
                 </div>
 
-                {/* Sidebar */}
-                <div className="space-y-6">
-                  <TeamBudgetsSidebar teams={auction.teams} />
-                  <Button
-                    variant={showSquads ? 'default' : 'outline'}
-                    className="w-full gap-2"
-                    onClick={() => setShowSquads(prev => !prev)}
-                  >
-                    <Users className="w-4 h-4" />
-                    {showSquads ? 'Hide Squads' : 'View Squads'}
-                  </Button>
-                  <AuctionProgressPanel
-                    soldCount={Object.keys(auction.soldPlayers).length}
-                    remaining={auction.auctionQueue.length - auction.auctionIndex}
-                    deferredCount={auction.deferredPlayers.length}
-                    progressPercent={(auction.auctionIndex / auction.auctionQueue.length) * 100}
-                    recentSales={auction.auctionHistory}
-                  />
-                  <ShareLinksPanel auctionId={auctionId} auctionName={auction.name} />
-                </div>
-              </div>
-
-              {/* Squads section — toggled on demand */}
-              <AnimatePresence>
-                {showSquads && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden mt-6"
-                  >
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Users className="w-5 h-5 text-muted-foreground" />
-                      All Squads
-                    </h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {auction.teams.map((team, index) => (
-                        <Card key={index}>
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <div>
-                                <p className="font-medium">{team.name}</p>
-                                <p className="text-xs text-muted-foreground tabular-nums">{team.coins} / {team.originalCoins}</p>
+                {/* Squads section — toggled on demand */}
+                <AnimatePresence>
+                  {showSquads && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden mt-6"
+                    >
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-muted-foreground" />
+                        All Squads
+                      </h3>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {auctionTeams.map((team, index) => (
+                          <Card key={index}>
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <div>
+                                  <p className="font-medium">{team.name}</p>
+                                  <p className="text-xs text-muted-foreground tabular-nums">{team.coins} / {team.originalCoins}</p>
+                                </div>
+                                <span className="text-xs text-muted-foreground">{team.players.length} players</span>
                               </div>
-                              <span className="text-xs text-muted-foreground">{team.players.length} players</span>
-                            </div>
-                            <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-3">
-                              <div
-                                className="h-full rounded-full bg-primary"
-                                style={{ width: `${team.originalCoins > 0 ? (team.coins / team.originalCoins) * 100 : 0}%` }}
-                              />
-                            </div>
-                            {team.players.length > 0 ? (
-                              <div className="space-y-1">
-                                {team.players.map((p, i) => (
-                                  <div key={i} className="flex justify-between items-center text-sm">
-                                    <span className="truncate">{p.name}</span>
-                                    <Badge variant="secondary" className="tabular-nums text-xs ml-2 shrink-0">{p.price}</Badge>
-                                  </div>
-                                ))}
+                              <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-3">
+                                <div
+                                  className="h-full rounded-full bg-primary"
+                                  style={{ width: `${team.originalCoins > 0 ? (team.coins / team.originalCoins) * 100 : 0}%` }}
+                                />
                               </div>
-                            ) : (
-                              <p className="text-xs text-muted-foreground">No players yet</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                              {team.players.length > 0 ? (
+                                <div className="space-y-1">
+                                  {team.players.map((p, i) => (
+                                    <div key={i} className="flex justify-between items-center text-sm">
+                                      <span className="truncate">{p.name}</span>
+                                      <Badge variant="secondary" className="tabular-nums text-xs ml-2 shrink-0">{p.price}</Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">No players yet</p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </>
             ) : (
               <div className="text-center py-16 text-muted-foreground">
@@ -1758,7 +1621,7 @@ export default function AuctionPage() {
           {/* Teams Tab */}
           <TabsContent value="teams">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {auction.teams.map((team, index) => (
+              {auctionTeams.map((team, index) => (
                 <Card key={index}>
                   <CardHeader>
                     <CardTitle>{team.name}</CardTitle>

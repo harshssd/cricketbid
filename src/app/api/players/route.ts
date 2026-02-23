@@ -8,7 +8,6 @@ const searchPlayersSchema = z.object({
   auctionId: z.string().optional(),
   leagueId: z.string().optional(),
   playingRole: z.enum(['BATSMAN', 'BOWLER', 'ALL_ROUNDER', 'WICKETKEEPER']).optional(),
-  status: z.enum(['AVAILABLE', 'SOLD', 'UNSOLD']).optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
   sortBy: z.enum(['name', 'createdAt']).default('name'),
@@ -26,7 +25,6 @@ export async function GET(request: NextRequest) {
       auctionId,
       leagueId,
       playingRole,
-      status,
       page,
       limit,
       sortBy,
@@ -36,7 +34,6 @@ export async function GET(request: NextRequest) {
       auctionId: searchParams.get('auctionId'),
       leagueId: searchParams.get('leagueId'),
       playingRole: searchParams.get('playingRole'),
-      status: searchParams.get('status'),
       page: searchParams.get('page'),
       limit: searchParams.get('limit'),
       sortBy: searchParams.get('sortBy'),
@@ -53,7 +50,7 @@ export async function GET(request: NextRequest) {
         *,
         auction:auctions!auction_id(id, name, status),
         tier:tiers!tier_id(id, name, base_price, color),
-        team_players(team:teams(id, name))
+        auction_results(team:teams(id, name))
       `)
 
     // Apply filters
@@ -67,10 +64,6 @@ export async function GET(request: NextRequest) {
 
     if (playingRole) {
       query = query.eq('playing_role', playingRole)
-    }
-
-    if (status) {
-      query = query.eq('status', status)
     }
 
     if (searchQuery) {
@@ -100,10 +93,6 @@ export async function GET(request: NextRequest) {
       countQuery = countQuery.eq('playing_role', playingRole)
     }
 
-    if (status) {
-      countQuery = countQuery.eq('status', status)
-    }
-
     if (searchQuery) {
       countQuery = countQuery.or(`name.ilike.%${searchQuery}%,custom_tags.ilike.%${searchQuery}%`)
     }
@@ -122,10 +111,10 @@ export async function GET(request: NextRequest) {
       throw countResult.error
     }
 
-    // Transform team_players → assigned_team for backward compat
+    // Transform auction_results → assigned_team for backward compat
     const players = (playersResult.data ?? []).map((p: any) => {
-      const { team_players: tp, ...rest } = p
-      return { ...rest, assigned_team: tp?.[0]?.team ?? null }
+      const { auction_results: ar, ...rest } = p
+      return { ...rest, assigned_team: ar?.[0]?.team ?? null }
     })
     const totalCount = countResult.count ?? 0
 
@@ -150,7 +139,6 @@ export async function GET(request: NextRequest) {
         auctionId,
         leagueId,
         playingRole,
-        status
       }
     })
 

@@ -14,7 +14,7 @@ const removePlayersSchema = z.object({
   playerIds: z.array(z.string()).min(1, 'At least one player ID is required'),
 })
 
-// Assign players to a team (pre-auction)
+// Assign players to a team (pre-auction via auction_results with 0 bid amount)
 export async function POST(
   request: NextRequest,
   { params }: RouteParams
@@ -60,11 +60,12 @@ export async function POST(
       return NextResponse.json({ error: 'Team not found in this auction' }, { status: 404 })
     }
 
-    // Count current players on team via join table
+    // Count current players on team via auction_results
     const { count: currentPlayerCount, error: countError } = await supabase
-      .from('team_players')
+      .from('auction_results')
       .select('id', { count: 'exact', head: true })
       .eq('team_id', teamId)
+      .eq('auction_id', auctionId)
 
     if (countError) throw countError
 
@@ -78,10 +79,10 @@ export async function POST(
       )
     }
 
-    // Verify all players belong to this auction and are available
+    // Verify all players belong to this auction
     const { data: players, error: playersError } = await supabase
       .from('players')
-      .select('id, name, status')
+      .select('id, name')
       .in('id', playerIds)
       .eq('auction_id', auctionId)
 
@@ -96,8 +97,9 @@ export async function POST(
 
     // Check if any players are already assigned to another team
     const { data: existingAssignments, error: existingError } = await supabase
-      .from('team_players')
+      .from('auction_results')
       .select('player_id, team_id')
+      .eq('auction_id', auctionId)
       .in('player_id', playerIds)
 
     if (existingError) throw existingError
@@ -116,24 +118,30 @@ export async function POST(
     const alreadyOnTeam = new Set((existingAssignments ?? []).filter(a => a.team_id === teamId).map(a => a.player_id))
     const newPlayerIds = playerIds.filter(id => !alreadyOnTeam.has(id))
 
-    // Insert into join table
+    // Insert into auction_results (pre-auction assignment with 0 bid amount)
     if (newPlayerIds.length > 0) {
       const { error: insertError } = await supabase
-        .from('team_players')
-        .insert(newPlayerIds.map(playerId => ({ team_id: teamId, player_id: playerId })))
+        .from('auction_results')
+        .insert(newPlayerIds.map(playerId => ({
+          auction_id: auctionId,
+          team_id: teamId,
+          player_id: playerId,
+          winning_bid_amount: 0,
+        })))
 
       if (insertError) throw insertError
     }
 
-    // Fetch updated team with players via join table
-    const { data: teamPlayers, error: teamPlayersError } = await supabase
-      .from('team_players')
-      .select('player:players(id, name, image, playing_role, status, tier:tiers!tier_id(name, color))')
+    // Fetch updated team players via auction_results
+    const { data: teamResults, error: teamResultsError } = await supabase
+      .from('auction_results')
+      .select('player:players(id, name, image, playing_role, tier:tiers!tier_id(name, color))')
       .eq('team_id', teamId)
+      .eq('auction_id', auctionId)
 
-    if (teamPlayersError) throw teamPlayersError
+    if (teamResultsError) throw teamResultsError
 
-    const updatedPlayers = (teamPlayers ?? []).map(tp => tp.player).filter(Boolean)
+    const updatedPlayers = (teamResults ?? []).map(r => r.player).filter(Boolean)
 
     const updatedTeam = {
       ...team,
@@ -142,7 +150,6 @@ export async function POST(
         name: p.name,
         image: p.image,
         playingRole: p.playing_role,
-        status: p.status,
         tier: p.tier
       })),
       _count: { players: updatedPlayers.length }
@@ -213,24 +220,26 @@ export async function DELETE(
       return NextResponse.json({ error: 'Team not found in this auction' }, { status: 404 })
     }
 
-    // Remove from join table
+    // Remove from auction_results
     const { error: deleteError } = await supabase
-      .from('team_players')
+      .from('auction_results')
       .delete()
-      .in('player_id', playerIds)
+      .eq('auction_id', auctionId)
       .eq('team_id', teamId)
+      .in('player_id', playerIds)
 
     if (deleteError) throw deleteError
 
-    // Fetch updated team with players via join table
-    const { data: teamPlayers, error: teamPlayersError } = await supabase
-      .from('team_players')
-      .select('player:players(id, name, image, playing_role, status, tier:tiers!tier_id(name, color))')
+    // Fetch updated team players via auction_results
+    const { data: teamResults, error: teamResultsError } = await supabase
+      .from('auction_results')
+      .select('player:players(id, name, image, playing_role, tier:tiers!tier_id(name, color))')
       .eq('team_id', teamId)
+      .eq('auction_id', auctionId)
 
-    if (teamPlayersError) throw teamPlayersError
+    if (teamResultsError) throw teamResultsError
 
-    const updatedPlayers = (teamPlayers ?? []).map(tp => tp.player).filter(Boolean)
+    const updatedPlayers = (teamResults ?? []).map(r => r.player).filter(Boolean)
 
     const updatedTeam = {
       ...team,
@@ -239,7 +248,6 @@ export async function DELETE(
         name: p.name,
         image: p.image,
         playingRole: p.playing_role,
-        status: p.status,
         tier: p.tier
       })),
       _count: { players: updatedPlayers.length }

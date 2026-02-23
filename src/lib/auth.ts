@@ -233,8 +233,8 @@ export async function verifyTeamAdminAccess(
     const { data: team } = await supabase
       .from('teams')
       .select(`
-        id, name, captain_id, auction_id,
-        captain:users!captain_id(id, name, email),
+        id, name, captain_user_id, auction_id,
+        captain:users!captain_user_id(id, name, email),
         auction:auctions!auction_id(id, status)
       `)
       .eq('id', teamId)
@@ -254,18 +254,6 @@ export async function verifyTeamAdminAccess(
     // Check if user is the assigned team captain
     if (teamCaptain && teamCaptain.id === userId) {
       return { success: true, accessRole: 'CAPTAIN' }
-    }
-
-    // Check if user is a team member with CAPTAIN role
-    const { data: captainMembers } = await supabase
-      .from('team_members')
-      .select('id, user_id, role, user:users!user_id(id, name, email)')
-      .eq('team_id', teamId)
-      .eq('role', 'CAPTAIN')
-
-    const captainMember = captainMembers?.find((m: any) => m.user_id === userId)
-    if (captainMember) {
-      return { success: true, accessRole: 'VICE_CAPTAIN' }
     }
 
     // Check if user has admin role in auction participation for this team

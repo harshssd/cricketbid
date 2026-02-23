@@ -5,7 +5,7 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
-// POST — Record a player sale: create auction_result, update player status, update team budget
+// POST — Record a player sale: create auction_result, update team budget
 export async function POST(
   request: NextRequest,
   { params }: RouteParams
@@ -56,34 +56,6 @@ export async function POST(
         { error: 'Failed to record sale', details: resultError.message },
         { status: 500 }
       )
-    }
-
-    // Update player status to SOLD
-    const { error: playerError } = await supabase
-      .from('players')
-      .update({ status: 'SOLD' })
-      .eq('id', playerId)
-
-    if (playerError) {
-      console.error('[sold/POST] Failed to update player status:', playerError)
-    }
-
-    // Update team budget_remaining
-    const { data: team } = await supabase
-      .from('teams')
-      .select('budget_remaining')
-      .eq('id', teamId)
-      .maybeSingle()
-
-    if (team) {
-      const { error: budgetError } = await supabase
-        .from('teams')
-        .update({ budget_remaining: (team.budget_remaining || 0) - amount })
-        .eq('id', teamId)
-
-      if (budgetError) {
-        console.error('[sold/POST] Failed to update team budget:', budgetError)
-      }
     }
 
     // Mark the winning bid

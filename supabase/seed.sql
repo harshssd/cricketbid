@@ -13,18 +13,6 @@ INSERT INTO public.tier_color_presets (name, color, description) VALUES
 ('Rookie', '#32CD32', 'New/emerging players')
 ON CONFLICT DO NOTHING;
 
--- Team color presets
-INSERT INTO public.team_color_presets (name, primary_color, secondary_color, description) VALUES
-('Royal Blue', '#4169E1', '#F0F8FF', 'Classic blue and white combination'),
-('Forest Green', '#228B22', '#F0FFF0', 'Natural green theme'),
-('Crimson Red', '#DC143C', '#FFF8DC', 'Bold red and cream'),
-('Golden Yellow', '#FFD700', '#2F4F4F', 'Bright yellow with dark accents'),
-('Purple Majesty', '#8B00FF', '#E6E6FA', 'Royal purple theme'),
-('Orange Blast', '#FF4500', '#FFF8DC', 'Energetic orange'),
-('Teal Wave', '#008080', '#F0FFFF', 'Cool teal waters'),
-('Maroon Power', '#800000', '#F5F5DC', 'Deep maroon strength')
-ON CONFLICT DO NOTHING;
-
 -- Cricket position reference data
 INSERT INTO public.cricket_positions (role, display_name, abbreviation, description) VALUES
 ('BATSMAN', 'Batsman', 'BAT', 'Specialist in scoring runs'),

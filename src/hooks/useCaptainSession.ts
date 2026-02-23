@@ -12,7 +12,6 @@ export interface PlayerInfo {
   battingStyle?: string
   bowlingStyle?: string
   customTags?: string
-  status: 'AVAILABLE' | 'SOLD' | 'UNSOLD'
   tier: {
     id: string
     name: string
@@ -122,7 +121,6 @@ export interface SquadComposition {
 export interface AuctionProgress {
   totalPlayers: number
   soldPlayers: number
-  unsoldPlayers: number
   availablePlayers: number
   currentRoundNumber: number
   totalRounds: number

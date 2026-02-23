@@ -24,6 +24,14 @@ interface Team {
   players: Array<{ name: string; price: number; tier: number }>
 }
 
+interface SoldPlayer {
+  playerId: string
+  playerName: string
+  teamId: string
+  teamName: string
+  price: number
+}
+
 interface AuctionState {
   id: string
   name: string
@@ -31,10 +39,10 @@ interface AuctionState {
   auctionQueue: string[]
   auctionIndex: number
   auctionStarted: boolean
-  soldPlayers: { [playerName: string]: { team: string; price: number } }
+  soldPlayers: SoldPlayer[]
   unsoldPlayers: string[]
   deferredPlayers: string[]
-  auctionHistory: Array<{ player: string; team: string; price: number; index: number }>
+  auctionHistory: Array<{ player: string; team: string; price: number; action: string }>
 }
 
 interface PlayerBid {

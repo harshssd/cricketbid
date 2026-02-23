@@ -75,7 +75,6 @@ export async function POST(request: NextRequest) {
       const teamRows = validatedData.teams.map((team) => ({
         auction_id: auction.id,
         name: team.name,
-        budget_remaining: validatedData.config.budgetPerTeam,
       }))
 
       const { data: createdTeams, error: teamsError } = await supabase

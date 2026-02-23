@@ -53,12 +53,12 @@ export async function POST(
         primary_color: teamData.primaryColor || '#3B82F6',
         secondary_color: teamData.secondaryColor || '#1B2A4A',
         logo: teamData.logo,
-        captain_id: teamData.captainId,
+        captain_user_id: teamData.captainId,
         max_members: teamData.maxMembers || 11,
         is_active: true,
         league_id: leagueId,
       })
-      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .select('*, captain:users!captain_user_id(id, name, email, image)')
       .single()
 
     if (createError) {
@@ -70,13 +70,12 @@ export async function POST(
       ...team,
       primaryColor: team.primary_color,
       secondaryColor: team.secondary_color,
-      captainId: team.captain_id,
+      captainId: team.captain_user_id,
       maxMembers: team.max_members,
       isActive: team.is_active,
       leagueId: team.league_id,
       createdAt: team.created_at,
-      _count: { members: team.members?.length ?? 0 },
-      members: undefined,
+      _count: { members: 0 },
     }
 
     return NextResponse.json({
@@ -114,7 +113,7 @@ export async function GET(
 
     let query = supabase
       .from('teams')
-      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .select('*, captain:users!captain_user_id(id, name, email, image)')
       .eq('league_id', leagueId)
       .order('is_active', { ascending: false })
       .order('created_at', { ascending: false })
@@ -134,13 +133,12 @@ export async function GET(
       ...team,
       primaryColor: team.primary_color,
       secondaryColor: team.secondary_color,
-      captainId: team.captain_id,
+      captainId: team.captain_user_id,
       maxMembers: team.max_members,
       isActive: team.is_active,
       leagueId: team.league_id,
       createdAt: team.created_at,
-      _count: { members: team.members?.length ?? 0 },
-      members: undefined,
+      _count: { members: 0 },
     }))
 
     return NextResponse.json({ teams: transformedTeams })
@@ -189,7 +187,7 @@ export async function PATCH(
     // Get club teams to import
     const { data: clubTeams, error: clubTeamsError } = await supabase
       .from('teams')
-      .select('*, captain:users!captain_id(id, name, email, image), club:clubs!club_id(name)')
+      .select('*, captain:users!captain_user_id(id, name, email, image), club:clubs!club_id(name)')
       .in('id', clubTeamIds)
       .eq('is_active', true)
       .not('club_id', 'is', null)
@@ -231,11 +229,11 @@ export async function PATCH(
           primary_color: clubTeam.primary_color,
           secondary_color: clubTeam.secondary_color,
           logo: clubTeam.logo,
-          captain_id: clubTeam.captain_id,
+          captain_user_id: clubTeam.captain_user_id,
           max_members: clubTeam.max_members,
           is_active: true,
         })
-        .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+        .select('*, captain:users!captain_user_id(id, name, email, image)')
         .single()
 
       if (createError) {
@@ -247,7 +245,7 @@ export async function PATCH(
         ...leagueTeam,
         primaryColor: leagueTeam.primary_color,
         secondaryColor: leagueTeam.secondary_color,
-        captainId: leagueTeam.captain_id,
+        captainId: leagueTeam.captain_user_id,
         maxMembers: leagueTeam.max_members,
         isActive: leagueTeam.is_active,
         leagueId: leagueTeam.league_id,

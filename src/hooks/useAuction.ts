@@ -69,7 +69,7 @@ export interface AuctionDetail {
     battingStyle?: string
     bowlingStyle?: string
     customTags?: string
-    status: 'AVAILABLE' | 'SOLD' | 'UNSOLD'
+    status: 'AVAILABLE' | 'SOLD'
     tier: {
       id: string
       name: string
@@ -104,7 +104,6 @@ export interface AuctionDetail {
     total: number
     available: number
     sold: number
-    unsold: number
   }
 
   participationStats: {

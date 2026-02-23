@@ -14,7 +14,7 @@ const bidSchema = z.object({
 })
 
 /**
- * Resolve a round ID for bidding. If the round ID is a runtime_state fallback
+ * Resolve a round ID for bidding. If the round ID is a legacy fallback
  * (rt-{playerId}), find or create a real round in the database so bids can
  * be validated and stored with proper foreign keys.
  */

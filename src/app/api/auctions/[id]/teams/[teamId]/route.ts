@@ -62,9 +62,9 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {}
     if (data.name !== undefined) updateData.name = data.name
     if (data.description !== undefined) updateData.description = data.description
-    if (data.captainId !== undefined) updateData.captain_id = data.captainId
+    if (data.captainId !== undefined) updateData.captain_user_id = data.captainId
     if (data.captainPlayerId !== undefined) updateData.captain_player_id = data.captainPlayerId
-    if (data.budgetRemaining !== undefined) updateData.budget_remaining = data.budgetRemaining
+    // budget_remaining is now computed from team_budgets view
 
     const { data: updatedTeam, error: updateError } = await supabase
       .from('teams')
@@ -72,18 +72,16 @@ export async function PATCH(
       .eq('id', teamId)
       .select(`
         *,
-        captain:users!teams_captain_id_fkey(id, name, email, image),
-        team_players(
+        captain:users!teams_captain_user_id_fkey(id, name, email, image),
+        auction_results(
           player:players(
             id,
             name,
             image,
             playing_role,
-            status,
             tier:tiers!tier_id(name, color)
           )
-        ),
-        team_members(id)
+        )
       `)
       .single()
 
@@ -101,16 +99,16 @@ export async function PATCH(
     }
 
     // Transform to camelCase shape with _count
-    const { team_players, team_members, ...rest } = updatedTeam
-    const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
+    const { auction_results: ar, ...rest } = updatedTeam
+    const players = (ar ?? []).map((r: any) => r.player).filter(Boolean)
     const result = {
       id: rest.id,
       auctionId: rest.auction_id,
       name: rest.name,
       description: rest.description,
-      captainId: rest.captain_id,
+      captainId: rest.captain_user_id,
       captainPlayerId: rest.captain_player_id,
-      budgetRemaining: rest.budget_remaining,
+      // budgetRemaining is computed from team_budgets view
       captain: rest.captain,
       captainPlayer: captainPlayer ? {
         id: captainPlayer.id,
@@ -121,7 +119,6 @@ export async function PATCH(
       players,
       _count: {
         players: players.length,
-        members: team_members?.length ?? 0
       }
     }
 
@@ -183,7 +180,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Team not found in this auction' }, { status: 404 })
     }
 
-    // Delete team — ON DELETE CASCADE on team_players handles cleanup
+    // Delete team — ON DELETE CASCADE handles cleanup
     const { error: deleteError } = await supabase
       .from('teams')
       .delete()

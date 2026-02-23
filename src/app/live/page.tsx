@@ -22,6 +22,14 @@ interface Team {
   players: Array<{ name: string; price: number; tier: number }>
 }
 
+interface SoldPlayer {
+  playerId: string
+  playerName: string
+  teamId: string
+  teamName: string
+  price: number
+}
+
 interface AuctionState {
   id: string
   name: string
@@ -29,10 +37,10 @@ interface AuctionState {
   auctionQueue: string[]
   auctionIndex: number
   auctionStarted: boolean
-  soldPlayers: { [playerName: string]: { team: string; price: number } }
+  soldPlayers: SoldPlayer[]
   unsoldPlayers: string[]
   deferredPlayers: string[]
-  auctionHistory: Array<{ player: string; team: string; price: number; index: number }>
+  auctionHistory: Array<{ player: string; team: string; price: number; action: string }>
 }
 
 export default function LivePage() {
@@ -96,7 +104,7 @@ export default function LivePage() {
   const getAuctionProgress = () => {
     if (!auction) return { sold: 0, remaining: 0, deferred: 0, progress: 0 }
 
-    const sold = Object.keys(auction.soldPlayers).length
+    const sold = auction.soldPlayers.length
     const remaining = auction.auctionQueue.length - auction.auctionIndex
     const deferred = auction.deferredPlayers.length
     const progress = auction.auctionQueue.length > 0 ? (auction.auctionIndex / auction.auctionQueue.length) * 100 : 0

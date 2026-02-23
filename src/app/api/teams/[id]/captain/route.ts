@@ -17,16 +17,10 @@ export async function PUT(
     const body = await request.json()
     const { captainId } = assignCaptainSchema.parse(body)
 
-    // Get the team to determine its context
+    // Get the team
     const { data: team } = await supabase
       .from('teams')
-      .select(`
-        *,
-        members:team_members(
-          *,
-          user:users(*)
-        )
-      `)
+      .select('*, captain:users!captain_user_id(id, name, email, image)')
       .eq('id', teamId)
       .maybeSingle()
 
@@ -37,7 +31,7 @@ export async function PUT(
       )
     }
 
-    // Validate captain exists and is eligible
+    // Validate captain exists
     if (captainId) {
       const { data: captain } = await supabase
         .from('users')
@@ -52,11 +46,8 @@ export async function PUT(
         )
       }
 
-      // Check if captain is a member of the team
-      const isMember = team.members.some((member: { user_id: string }) => member.user_id === captainId)
-
-      // For auction teams, also check auction participation
-      if (!isMember && team.auction_id) {
+      // For auction teams, check auction participation
+      if (team.auction_id) {
         const { data: participation } = await supabase
           .from('auction_participations')
           .select('id')
@@ -66,62 +57,32 @@ export async function PUT(
 
         if (!participation) {
           return NextResponse.json(
-            { error: 'Captain must be a member of the team or auction participant' },
+            { error: 'Captain must be an auction participant' },
             { status: 400 }
           )
         }
-      } else if (!isMember) {
-        return NextResponse.json(
-          { error: 'Captain must be a member of the team' },
-          { status: 400 }
-        )
       }
     }
 
-    // Update team captain (replacing $transaction with sequential calls)
+    // Update team captain
     const { data: updatedTeam, error: updateError } = await supabase
       .from('teams')
-      .update({ captain_id: captainId })
+      .update({ captain_user_id: captainId })
       .eq('id', teamId)
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
+        captain:users!captain_user_id(id, name, email, image),
         club:clubs!club_id(id, name),
         league:leagues!league_id(id, name),
-        auction:auctions!auction_id(id, name),
-        team_members(id)
+        auction:auctions!auction_id(id, name)
       `)
       .single()
 
     if (updateError) throw updateError
 
-    // Update member roles
-    if (team.members.length > 0) {
-      // Reset all members to MEMBER role
-      const { error: resetError } = await supabase
-        .from('team_members')
-        .update({ role: 'MEMBER' })
-        .eq('team_id', teamId)
-
-      if (resetError) throw resetError
-
-      // Set new captain role if captain is assigned
-      if (captainId) {
-        const { error: captainRoleError } = await supabase
-          .from('team_members')
-          .update({ role: 'CAPTAIN' })
-          .eq('team_id', teamId)
-          .eq('user_id', captainId)
-
-        if (captainRoleError) throw captainRoleError
-      }
-    }
-
-    // Transform to match expected shape with _count
-    const { team_members, ...rest } = updatedTeam
     const result = {
-      ...rest,
-      _count: { members: team_members?.length ?? 0 }
+      ...updatedTeam,
+      _count: { members: 0 }
     }
 
     return NextResponse.json({
@@ -156,16 +117,12 @@ export async function GET(
     const supabase = await createClient()
     const { id: teamId } = await params
 
-    // Get team with its members
+    // Get team with captain
     const { data: team } = await supabase
       .from('teams')
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
-        members:team_members(
-          *,
-          user:users(id, name, email, image)
-        ),
+        captain:users!captain_user_id(id, name, email, image),
         club:clubs!club_id(id, name),
         league:leagues!league_id(id, name),
         auction:auctions!auction_id(id, name)
@@ -180,14 +137,10 @@ export async function GET(
       )
     }
 
-    // Get eligible members
-    let eligibleMembers = team.members.map((member: { user: { id: string; name: string; email: string; image: string }; role: string }) => ({
-      ...member.user,
-      currentRole: member.role
-    }))
+    // Get eligible members from auction participations
+    let eligibleMembers: Array<{ id: string; name: string; email: string; image: string | null; currentRole: string }> = []
 
-    // For auction teams, also include auction participants
-    if (team.auction_id && team.members.length === 0) {
+    if (team.auction_id) {
       const { data: auctionParticipants, error: participantsError } = await supabase
         .from('auction_participations')
         .select(`
@@ -198,9 +151,9 @@ export async function GET(
 
       if (participantsError) throw participantsError
 
-      eligibleMembers = (auctionParticipants ?? []).map((participation: { user: { id: string; name: string; email: string; image: string }; user_id: string }) => ({
+      eligibleMembers = (auctionParticipants ?? []).map((participation: any) => ({
         ...participation.user,
-        currentRole: participation.user_id === team.captain_id ? 'CAPTAIN' as const : 'MEMBER' as const
+        currentRole: participation.user_id === team.captain_user_id ? 'CAPTAIN' as const : 'MEMBER' as const
       }))
     }
 

@@ -56,7 +56,7 @@ export function useLiveAuction(auctionId: string) {
   const [teamCaptainMap, setTeamCaptainMap] = useState<Map<string, LiveTeamCaptain>>(new Map())
 
   const mountedRef = useRef(true)
-  const prevHistoryLenRef = useRef(0)
+  const prevSoldCountRef = useRef(0)
   const prevAuctionIndexRef = useRef(0)
   const isFirstStateRef = useRef(true)
   const timersRef = useRef<NodeJS.Timeout[]>([])
@@ -66,7 +66,7 @@ export function useLiveAuction(auctionId: string) {
 
   const setView = useCallback((v: ViewState) => {
     viewStateRef.current = v
-    setView(v)
+    setViewState(v)
   }, [])
 
   const clearTimers = useCallback(() => {
@@ -108,6 +108,15 @@ export function useLiveAuction(auctionId: string) {
             bowlingStyle: p.bowlingStyle,
             tier: p.tier,
           })
+          // Also index by ID for formal model lookups
+          map.set(p.id, {
+            name: p.name,
+            image: p.image,
+            playingRole: p.playingRole || 'BATSMAN',
+            battingStyle: p.battingStyle,
+            bowlingStyle: p.bowlingStyle,
+            tier: p.tier,
+          })
         }
         setPlayerMap(map)
 
@@ -122,6 +131,54 @@ export function useLiveAuction(auctionId: string) {
           }
         }
         setTeamCaptainMap(captainMap)
+
+        // Build AuctionState from the REST API data so the live view works
+        // immediately, regardless of realtime channel status
+        const queueState = data.queueState || {}
+        const soldPlayers = (data.players || [])
+          .filter((p: any) => p.status === 'SOLD' && p.assignedTeam)
+          .map((p: any) => {
+            const team = (data.teams || []).find((t: any) => t.id === p.assignedTeam?.id)
+            const result = (team?.players || []).find((tp: any) => tp.id === p.id)
+            return {
+              playerId: p.id,
+              playerName: p.name,
+              teamId: p.assignedTeam.id,
+              teamName: p.assignedTeam.name,
+              price: result?.price || 0,
+            }
+          })
+
+        const initialState: AuctionState = {
+          id: data.id || auctionId,
+          name: data.name || '',
+          status: data.status || 'DRAFT',
+          teams: (data.teams || []).map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            coins: t.budgetRemaining ?? data.budgetPerTeam ?? 0,
+            originalCoins: data.budgetPerTeam ?? 0,
+            players: (t.players || []).map((p: any) => ({
+              id: p.id || '',
+              name: p.name || 'Unknown',
+              price: p.price || 0,
+            })),
+          })),
+          currentRound: null,
+          soldPlayers,
+          unsoldPlayers: queueState.unsoldPlayers || [],
+          deferredPlayers: queueState.deferredPlayers || [],
+          auctionHistory: queueState.auctionHistory || [],
+          auctionQueue: queueState.auctionQueue || [],
+          auctionIndex: queueState.auctionIndex ?? 0,
+          auctionStarted: queueState.auctionStarted ?? false,
+          lastUpdated: new Date().toISOString(),
+        }
+
+        // Deliver via the handleState ref so view transitions work correctly
+        if (handleStateRef.current) {
+          handleStateRef.current(initialState)
+        }
       } catch (err) {
         console.error('Failed to fetch auction data:', err)
       }
@@ -142,14 +199,14 @@ export function useLiveAuction(auctionId: string) {
       setIsConnected(true)
       setAuctionState(state)
 
-      const historyLen = state.auctionHistory?.length || 0
+      const soldCount = state.soldPlayers?.length || 0
       const auctionIdx = state.auctionIndex ?? 0
       const queueLen = state.auctionQueue?.length || 0
 
       // First state received — no transitions, just set the right view
       if (isFirstStateRef.current) {
         isFirstStateRef.current = false
-        prevHistoryLenRef.current = historyLen
+        prevSoldCountRef.current = soldCount
         prevAuctionIndexRef.current = auctionIdx
 
         if (!state.auctionStarted) {
@@ -166,7 +223,7 @@ export function useLiveAuction(auctionId: string) {
       if (!state.auctionStarted) {
         clearTimers()
         setView('waiting')
-        prevHistoryLenRef.current = historyLen
+        prevSoldCountRef.current = soldCount
         prevAuctionIndexRef.current = auctionIdx
         return
       }
@@ -175,27 +232,22 @@ export function useLiveAuction(auctionId: string) {
       if (auctionIdx >= queueLen && queueLen > 0) {
         clearTimers()
         setView('auction_complete')
-        prevHistoryLenRef.current = historyLen
+        prevSoldCountRef.current = soldCount
         prevAuctionIndexRef.current = auctionIdx
         return
       }
 
-      // Detect transitions from history growth
-      if (historyLen > prevHistoryLenRef.current) {
-        const latestEntry = state.auctionHistory[historyLen - 1]
+      // Detect new sale from sold count growth
+      if (soldCount > prevSoldCountRef.current) {
+        const latestSold = state.soldPlayers[soldCount - 1]
 
-        // UNSOLD or DEFERRED
-        if (latestEntry.action === 'unsold' || latestEntry.action === 'deferred') {
-          clearTimers()
-          setView('between_bids')
-        } else {
-          // SOLD
+        if (latestSold) {
           clearTimers()
           setLastSoldEvent({
-            player: latestEntry.player,
-            team: latestEntry.team,
-            teamColor: getTeamColor(latestEntry.team),
-            price: latestEntry.price,
+            player: latestSold.playerName,
+            team: latestSold.teamName,
+            teamColor: getTeamColor(latestSold.teamName),
+            price: latestSold.price,
           })
           setView('sold_celebration')
 
@@ -206,17 +258,17 @@ export function useLiveAuction(auctionId: string) {
           timersRef.current.push(t1)
         }
 
-        prevHistoryLenRef.current = historyLen
+        prevSoldCountRef.current = soldCount
         prevAuctionIndexRef.current = auctionIdx
         return
       }
 
-      // Detect UNSOLD/DEFERRED via index advance without history change
+      // Detect index advance without sale (unsold/deferred)
       if (auctionIdx > prevAuctionIndexRef.current) {
         clearTimers()
         setView('between_bids')
 
-        prevHistoryLenRef.current = historyLen
+        prevSoldCountRef.current = soldCount
         prevAuctionIndexRef.current = auctionIdx
         return
       }
@@ -229,7 +281,7 @@ export function useLiveAuction(auctionId: string) {
       }
 
       // Update refs
-      prevHistoryLenRef.current = historyLen
+      prevSoldCountRef.current = soldCount
       prevAuctionIndexRef.current = auctionIdx
     }
 
@@ -242,25 +294,19 @@ export function useLiveAuction(auctionId: string) {
       clearTimers()
       auctionRealtimeManager.unsubscribe()
     }
-  }, [auctionId, getTeamColor, clearTimers])
+  }, [auctionId, getTeamColor, clearTimers, setView])
 
-  // Poll auction runtime_state from API as fallback (every 3s)
-  // Uses the same data source as the auctioneer page (auctions.runtime_state)
+  // Poll auction state from API as fallback (every 10s)
   useEffect(() => {
     if (!auctionId) return
 
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`/api/auctions/${auctionId}/state`)
-        if (!res.ok) return
-        const data = await res.json()
-        if (data.runtimeState && data.runtimeState.auctionQueue) {
-          handleStateRef.current(data.runtimeState as AuctionState)
-        }
+        await auctionRealtimeManager.refreshState()
       } catch {
         // ignore polling errors
       }
-    }, 15000)
+    }, 10000)
 
     return () => clearInterval(poll)
   }, [auctionId])
@@ -271,6 +317,7 @@ export function useLiveAuction(auctionId: string) {
     ? auctionState.auctionQueue[auctionState.auctionIndex]
     : null
 
+  // Look up by ID first (formal model uses IDs), then by name (legacy)
   const currentPlayer: PlayerDetails | null = currentPlayerName
     ? playerMap.get(currentPlayerName) || { name: currentPlayerName, playingRole: 'BATSMAN' }
     : null
@@ -283,7 +330,7 @@ export function useLiveAuction(auctionId: string) {
     players: t.players.map(p => ({
       name: p.name,
       price: p.price,
-      role: playerMap.get(p.name)?.playingRole,
+      role: playerMap.get(p.name)?.playingRole || playerMap.get(p.id)?.playingRole,
     })),
     captain: teamCaptainMap.get(t.name) || null,
   }))
@@ -291,11 +338,14 @@ export function useLiveAuction(auctionId: string) {
   // Exclude captain players from the queue total
   const captainNames = new Set([...teamCaptainMap.values()].map(c => c.name))
   const queueTotal = auctionState?.auctionQueue
-    ? auctionState.auctionQueue.filter((name: string) => !captainNames.has(name)).length
+    ? auctionState.auctionQueue.filter((id: string) => {
+        const player = playerMap.get(id)
+        return !player || !captainNames.has(player.name)
+      }).length
     : 0
 
   const progress: LiveAuctionProgress = {
-    sold: Object.keys(auctionState?.soldPlayers || {}).length,
+    sold: auctionState?.soldPlayers?.length || 0,
     total: queueTotal,
   }
 

@@ -291,7 +291,7 @@ export default function BidderPage() {
 
   // ── Live Auction View ────────────────────────────────────────
   const isWaiting = !currentRound || !currentRound.player
-  // Round is open if: no timer (Infinity), or runtime_state fallback (rt-), or time remaining
+  // Round is open if: no timer (Infinity), or legacy fallback (rt-), or time remaining
   const isTimedOut = currentRound && timeLeft <= 0 && timeLeft !== Infinity && !currentRound.id?.startsWith('rt-')
   const isOpenIndefinitely = timeLeft === Infinity || (currentRound?.id?.startsWith('rt-') ?? false)
 

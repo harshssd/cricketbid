@@ -175,7 +175,7 @@ export async function PUT(
       .select(`
         *,
         tier:tiers!tier_id(id, name, base_price, color),
-        team_players(team:teams(id, name))
+        auction_results(team:teams(id, name))
       `)
       .single()
 
@@ -183,9 +183,9 @@ export async function PUT(
       throw updateError
     }
 
-    // Transform team_players → assigned_team for backward compat
-    const { team_players: tp, ...playerRest } = updatedPlayer as any
-    const assigned_team = tp?.[0]?.team ?? null
+    // Transform auction_results → assigned_team for backward compat
+    const { auction_results: ar, ...playerRest } = updatedPlayer as any
+    const assigned_team = ar?.[0]?.team ?? null
 
     return NextResponse.json({
       success: true,
@@ -228,7 +228,7 @@ export async function GET(
       .select(`
         *,
         tier:tiers!tier_id(id, name, base_price, color),
-        team_players(team:teams(id, name))
+        auction_results(team:teams(id, name))
       `)
       .eq('id', playerId)
       .eq('auction_id', auctionId)
@@ -245,9 +245,9 @@ export async function GET(
       )
     }
 
-    // Transform team_players → assigned_team for backward compat
-    const { team_players: tp2, ...playerData } = player as any
-    const assigned_team2 = tp2?.[0]?.team ?? null
+    // Transform auction_results → assigned_team for backward compat
+    const { auction_results: ar2, ...playerData } = player as any
+    const assigned_team2 = ar2?.[0]?.team ?? null
 
     return NextResponse.json({
       success: true,

@@ -1,32 +1,54 @@
 import { createClient } from '@/lib/supabase'
 import { RealtimeChannel } from '@supabase/supabase-js'
 
-export interface Team {
-  name: string
-  coins: number
-  originalCoins: number
-  players: Array<{ name: string; price: number; tier?: number }>
-}
-
+// Formal model types — derived from rounds, bids, auction_results, teams
 export interface AuctionState {
   id: string
   name: string
-  teams: Team[]
-  auctionQueue: string[]
-  auctionIndex: number
-  auctionStarted: boolean
-  soldPlayers: { [playerName: string]: { team: string; price: number } }
+  status: string
+  teams: TeamState[]
+  currentRound: RoundState | null
+  soldPlayers: SoldPlayer[]
   unsoldPlayers: string[]
   deferredPlayers: string[]
-  auctionHistory: Array<{ player: string; team: string; price: number; action?: string }>
+  auctionHistory: Array<{ player: string; team: string; price: number; action: string }>
+  auctionQueue: string[]   // player names in queue order
+  auctionIndex: number     // current position in queue
+  auctionStarted: boolean
   lastUpdated: string
 }
 
-export interface PlayerBid {
-  teamName: string
+export interface TeamState {
+  id: string
+  name: string
+  coins: number
+  originalCoins: number
+  players: Array<{ id: string; name: string; price: number; tier?: string }>
+}
+
+export interface RoundState {
+  id: string
+  playerId: string
   playerName: string
+  tierId: string
+  status: string
+  openedAt: string | null
+  closedAt: string | null
+}
+
+export interface SoldPlayer {
+  playerId: string
+  playerName: string
+  teamId: string
+  teamName: string
+  price: number
+}
+
+export interface FormalBid {
+  teamId: string
+  teamName: string
   amount: number
-  timestamp: number
+  timestamp: string
 }
 
 class AuctionRealtimeManager {
@@ -34,25 +56,25 @@ class AuctionRealtimeManager {
   private channel: RealtimeChannel | null = null
   private currentAuctionId: string | null = null
   private onStateChangeCallbacks: ((state: AuctionState) => void)[] = []
-  private onBidsChangeCallbacks: ((bids: Record<string, PlayerBid>) => void)[] = []
+  private onBidsChangeCallbacks: ((bids: Record<string, FormalBid>) => void)[] = []
   private onBidUpdateCallbacks: ((payload: { roundId: string; teamId: string; teamName: string; amount: number }) => void)[] = []
 
-  // Subscribe to auction state changes
+  // Subscribe to auction changes via postgres_changes + broadcast
   subscribeToAuction(auctionId: string) {
     if (this.channel && this.currentAuctionId === auctionId) {
-      return // Already subscribed to this auction
+      return
     }
 
     this.unsubscribe()
     this.currentAuctionId = auctionId
 
+    let subscribed = false
+
     this.channel = this.supabase.channel(`auction-${auctionId}`)
 
-    // Listen for auction state broadcasts
-    // Supabase broadcast: channel.send({ type, event, payload }) -> listener receives { event, payload }
+    // Listen for broadcast events (auctioneer pushes state updates)
     ;(this.channel as any)
       .on('broadcast', { event: 'auction-state' }, (msg: any) => {
-        // payload contains the AuctionState fields directly
         const state = msg?.payload
         if (state && state.auctionQueue) {
           this.onStateChangeCallbacks.forEach(callback => callback(state))
@@ -71,22 +93,27 @@ class AuctionRealtimeManager {
         }
       })
       .subscribe((status: string) => {
+        console.log(`Channel auction-${auctionId} status: ${status}`)
         if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to auction-${auctionId}`)
-          // Request current state when we join
+          subscribed = true
           this.requestCurrentState()
         }
       })
+
+    // Fallback: if channel doesn't subscribe within 3s, fetch state anyway
+    setTimeout(() => {
+      if (!subscribed && this.currentAuctionId === auctionId) {
+        console.log(`Channel subscription timeout — fetching state via REST fallback`)
+        this.requestCurrentState()
+      }
+    }, 3000)
   }
 
   // Broadcast auction state update (auctioneer only)
   async broadcastAuctionState(state: AuctionState) {
     if (!this.channel) return
 
-    // Save to Supabase table for persistence
-    await this.saveAuctionState(state)
-
-    // Broadcast to all connected clients
+    // Broadcast to all connected clients (persistence is handled by the caller)
     await this.channel.send({
       type: 'broadcast',
       event: 'auction-state',
@@ -98,30 +125,24 @@ class AuctionRealtimeManager {
   }
 
   // Broadcast bid update (captains only)
-  async broadcastBid(auctionId: string, teamName: string, bid: PlayerBid) {
+  async broadcastBid(auctionId: string, teamName: string, bid: FormalBid) {
     if (!this.channel) return
 
-    // Save bid to Supabase
-    await this.saveBid(auctionId, teamName, bid)
-
-    // Get all current bids and broadcast
-    const allBids = await this.getCurrentBids(auctionId)
+    // Broadcast the bid update
     await this.channel.send({
       type: 'broadcast',
-      event: 'auction-bids',
-      payload: { bids: allBids }
+      event: 'bid-update',
+      payload: {
+        roundId: '',
+        teamId: bid.teamId,
+        teamName: bid.teamName,
+        amount: bid.amount,
+      }
     })
   }
 
-  // Clear all bids (auctioneer only)
-  async clearBids(auctionId: string) {
-    // Delete from Supabase
-    await this.supabase
-      .from('auction_bids')
-      .delete()
-      .eq('auction_id', auctionId)
-
-    // Broadcast empty bids
+  // Clear bids — no-op now, bids are cleared by closing the round
+  async clearBids(_auctionId: string) {
     await this.channel?.send({
       type: 'broadcast',
       event: 'auction-bids',
@@ -129,80 +150,184 @@ class AuctionRealtimeManager {
     })
   }
 
-  // Public method to refresh state (e.g. after receiving bid-update from bidder view)
+  // Refresh state from server
   async refreshState() {
     return this.requestCurrentState()
   }
 
-  // Request current state from server
+  // Fetch current state from formal model (browser Supabase client)
+  // Falls back to REST API if RLS blocks the direct queries
   private async requestCurrentState() {
     if (!this.currentAuctionId) return
 
     try {
-      // Get auction state from Supabase
-      const { data: auctionData } = await this.supabase
-        .from('live_auctions')
-        .select('*')
-        .eq('id', this.currentAuctionId)
-        .maybeSingle()
+      const state = await this.fetchStateFromSupabase(this.currentAuctionId)
+      if (state) {
+        this.onStateChangeCallbacks.forEach(callback => callback(state))
+        return
+      }
+    } catch (error) {
+      console.warn('Supabase direct query failed, trying REST API fallback:', error)
+    }
 
-      if (auctionData) {
-        const state: AuctionState = JSON.parse(auctionData.state)
+    // Fallback: fetch via REST API (server-side, bypasses RLS)
+    try {
+      const state = await this.fetchStateFromApi(this.currentAuctionId)
+      if (state) {
         this.onStateChangeCallbacks.forEach(callback => callback(state))
       }
-
-      // Get current bids
-      const bids = await this.getCurrentBids(this.currentAuctionId)
-      this.onBidsChangeCallbacks.forEach(callback => callback(bids))
     } catch (error) {
-      console.error('Failed to get current state:', error)
+      console.error('Failed to get current state from both sources:', error)
     }
   }
 
-  // Save auction state to Supabase
-  private async saveAuctionState(state: AuctionState) {
-    await this.supabase
-      .from('live_auctions')
-      .upsert({
-        id: state.id,
-        name: state.name,
-        state: JSON.stringify(state),
-        last_updated: new Date().toISOString()
-      })
-  }
+  private async fetchStateFromSupabase(auctionId: string): Promise<AuctionState | null> {
+    const { data: auction, error: auctionError } = await this.supabase
+      .from('auctions')
+      .select('id, name, status, budget_per_team, queue_state')
+      .eq('id', auctionId)
+      .maybeSingle()
 
-  // Save bid to Supabase
-  private async saveBid(auctionId: string, teamName: string, bid: PlayerBid) {
-    await this.supabase
-      .from('auction_bids')
-      .upsert({
-        auction_id: auctionId,
-        team_name: teamName,
-        player_name: bid.playerName,
-        amount: bid.amount,
-        timestamp: new Date(bid.timestamp).toISOString()
-      })
-  }
+    if (auctionError) throw auctionError
+    if (!auction) return null
 
-  // Get current bids from Supabase
-  private async getCurrentBids(auctionId: string): Promise<Record<string, PlayerBid>> {
-    const { data } = await this.supabase
-      .from('auction_bids')
-      .select('*')
+    const queueState = auction.queue_state as {
+      auctionQueue?: string[]
+      auctionIndex?: number
+      auctionStarted?: boolean
+      unsoldPlayers?: string[]
+      deferredPlayers?: string[]
+      auctionHistory?: Array<{ player: string; team: string; price: number; action: string }>
+    } | null
+
+    const { data: teams } = await this.supabase
+      .from('teams')
+      .select('id, name')
+      .eq('auction_id', auctionId)
+      .order('name')
+
+    const { data: teamBudgets } = await this.supabase
+      .from('team_budgets')
+      .select('team_id, total_budget, spent, budget_remaining')
       .eq('auction_id', auctionId)
 
-    const bids: Record<string, PlayerBid> = {}
-    if (data) {
-      data.forEach(row => {
-        bids[row.team_name] = {
-          teamName: row.team_name,
-          playerName: row.player_name,
-          amount: row.amount,
-          timestamp: new Date(row.timestamp).getTime()
-        }
+    const budgetMap = new Map(
+      (teamBudgets || []).map(b => [b.team_id, b])
+    )
+
+    const { data: results } = await this.supabase
+      .from('auction_results')
+      .select('player_id, team_id, winning_bid_amount, player:players(name), team:teams(name)')
+      .eq('auction_id', auctionId)
+
+    const teamPlayersMap = new Map<string, Array<{ id: string; name: string; price: number }>>()
+    const soldPlayers: SoldPlayer[] = []
+
+    for (const r of results || []) {
+      const teamPlayers = teamPlayersMap.get(r.team_id) || []
+      const playerName = (r.player as any)?.name || 'Unknown'
+      teamPlayers.push({ id: r.player_id, name: playerName, price: r.winning_bid_amount })
+      teamPlayersMap.set(r.team_id, teamPlayers)
+
+      soldPlayers.push({
+        playerId: r.player_id,
+        playerName,
+        teamId: r.team_id,
+        teamName: (r.team as any)?.name || 'Unknown',
+        price: r.winning_bid_amount,
       })
     }
-    return bids
+
+    const teamStates: TeamState[] = (teams || []).map(t => {
+      const budget = budgetMap.get(t.id)
+      return {
+        id: t.id,
+        name: t.name,
+        coins: budget?.budget_remaining ?? auction.budget_per_team,
+        originalCoins: budget?.total_budget ?? auction.budget_per_team,
+        players: teamPlayersMap.get(t.id) || [],
+      }
+    })
+
+    return {
+      id: auction.id,
+      name: auction.name,
+      status: auction.status,
+      teams: teamStates,
+      currentRound: null,
+      soldPlayers,
+      unsoldPlayers: queueState?.unsoldPlayers || [],
+      deferredPlayers: queueState?.deferredPlayers || [],
+      auctionHistory: queueState?.auctionHistory || [],
+      auctionQueue: queueState?.auctionQueue || [],
+      auctionIndex: queueState?.auctionIndex ?? 0,
+      auctionStarted: queueState?.auctionStarted ?? false,
+      lastUpdated: new Date().toISOString(),
+    }
+  }
+
+  private async fetchStateFromApi(auctionId: string): Promise<AuctionState | null> {
+    const res = await fetch(`/api/auctions/${auctionId}`)
+    if (!res.ok) return null
+    const data = await res.json()
+
+    // Build sold players from players with SOLD status
+    const soldPlayers: SoldPlayer[] = (data.players || [])
+      .filter((p: any) => p.status === 'SOLD' && p.assignedTeam)
+      .map((p: any) => {
+        const team = (data.teams || []).find((t: any) => t.id === p.assignedTeam?.id)
+        const result = (team?.players || []).find((tp: any) => tp.id === p.id)
+        return {
+          playerId: p.id,
+          playerName: p.name,
+          teamId: p.assignedTeam.id,
+          teamName: p.assignedTeam.name,
+          price: result?.price || 0,
+        }
+      })
+
+    return {
+      id: data.id || auctionId,
+      name: data.name || '',
+      status: data.status || 'DRAFT',
+      teams: (data.teams || []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        coins: t.budgetRemaining ?? data.budgetPerTeam ?? 0,
+        originalCoins: data.budgetPerTeam ?? 0,
+        players: (t.players || []).map((p: any) => ({
+          id: p.id || '',
+          name: p.name || 'Unknown',
+          price: p.price || 0,
+        })),
+      })),
+      currentRound: null,
+      soldPlayers,
+      unsoldPlayers: data.queueState?.unsoldPlayers || [],
+      deferredPlayers: data.queueState?.deferredPlayers || [],
+      auctionHistory: data.queueState?.auctionHistory || [],
+      auctionQueue: data.queueState?.auctionQueue || [],
+      auctionIndex: data.queueState?.auctionIndex ?? 0,
+      auctionStarted: data.queueState?.auctionStarted ?? false,
+      lastUpdated: new Date().toISOString(),
+    }
+  }
+
+  // Save queue state (queue order, index, started flag + ephemeral state) to auctions table
+  private async saveQueueState(state: AuctionState) {
+    await this.supabase
+      .from('auctions')
+      .update({
+        queue_state: {
+          auctionQueue: state.auctionQueue,
+          auctionIndex: state.auctionIndex,
+          auctionStarted: state.auctionStarted,
+          unsoldPlayers: state.unsoldPlayers,
+          deferredPlayers: state.deferredPlayers,
+          auctionHistory: state.auctionHistory,
+        }
+      })
+      .eq('id', state.id)
   }
 
   // Register callbacks
@@ -210,7 +335,7 @@ class AuctionRealtimeManager {
     this.onStateChangeCallbacks.push(callback)
   }
 
-  onBidsChange(callback: (bids: Record<string, PlayerBid>) => void) {
+  onBidsChange(callback: (bids: Record<string, FormalBid>) => void) {
     this.onBidsChangeCallbacks.push(callback)
   }
 
@@ -225,6 +350,9 @@ class AuctionRealtimeManager {
       this.channel = null
     }
     this.currentAuctionId = null
+    this.onStateChangeCallbacks = []
+    this.onBidsChangeCallbacks = []
+    this.onBidUpdateCallbacks = []
   }
 }
 

@@ -29,7 +29,7 @@ export async function validateAndSubmitBid(params: ValidateAndSubmitBidParams): 
   // Get team and auction info
   const { data: team, error: teamError } = await supabase
     .from('teams')
-    .select('id, budget_remaining, auction_id, auction:auctions!auction_id(id, status, budget_per_team)')
+    .select('id, auction_id, auction:auctions!auction_id(id, status, budget_per_team)')
     .eq('id', teamId)
     .maybeSingle()
 
@@ -81,8 +81,14 @@ export async function validateAndSubmitBid(params: ValidateAndSubmitBidParams): 
     return { success: false, error: `Minimum bid is ${basePrice}`, status: 400 }
   }
 
-  // Check if team has sufficient budget
-  const remainingBudget = team.budget_remaining ?? teamAuction.budget_per_team
+  // Check if team has sufficient budget (computed from auction_results)
+  const { data: teamBudget } = await supabase
+    .from('team_budgets')
+    .select('budget_remaining')
+    .eq('team_id', teamId)
+    .maybeSingle()
+
+  const remainingBudget = teamBudget?.budget_remaining ?? teamAuction.budget_per_team
   if (amount > remainingBudget) {
     return { success: false, error: 'Insufficient budget', status: 400 }
   }

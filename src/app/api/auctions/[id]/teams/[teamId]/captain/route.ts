@@ -54,7 +54,7 @@ export async function PUT(
     // Fetch the team with its captain
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .select('id, name, captain_user_id, captain:users!captain_user_id(id, name, email)')
       .eq('id', teamId)
       .eq('auction_id', auctionId)
       .maybeSingle()
@@ -79,55 +79,41 @@ export async function PUT(
       )
     }
 
-    // Verify new captain exists in team members
-    const { data: newCaptainMember, error: memberError } = await supabase
-      .from('team_members')
+    // Verify new captain has an auction participation
+    const { data: newCaptainParticipation, error: participationError } = await supabase
+      .from('auction_participations')
       .select('*, user:users!user_id(id, name, email)')
-      .eq('team_id', teamId)
+      .eq('auction_id', auctionId)
       .eq('user_id', newCaptainId)
       .maybeSingle()
 
-    if (memberError) throw memberError
+    if (participationError) throw participationError
 
-    if (!newCaptainMember) {
+    if (!newCaptainParticipation) {
       return NextResponse.json(
-        { error: 'New captain must be an existing team member' },
+        { error: 'New captain must be an auction participant' },
         { status: 400 }
       )
     }
 
-    const newCaptainUser = newCaptainMember.user as unknown as { id: string; name: string; email: string }
+    const newCaptainUser = newCaptainParticipation.user as unknown as { id: string; name: string; email: string }
 
     // Update team captain
     const { data: updatedTeam, error: updateError } = await supabase
       .from('teams')
-      .update({ captain_id: newCaptainId })
+      .update({ captain_user_id: newCaptainId })
       .eq('id', teamId)
-      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .select('id, name, captain_user_id, captain:users!captain_user_id(id, name, email)')
       .single()
 
     if (updateError) throw updateError
 
-    // Convert the old captain to a team member if they weren't already
-    if (captain && captain.id !== newCaptainId) {
-      const { data: existingMember } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', teamId)
-        .eq('user_id', captain.id)
-        .maybeSingle()
-
-      if (!existingMember) {
-        const { error: createError } = await supabase
-          .from('team_members')
-          .insert({
-            team_id: teamId,
-            user_id: captain.id,
-            role: 'MEMBER'
-          })
-
-        if (createError) throw createError
-      }
+    // Ensure the new captain has a participation linked to this team
+    if (newCaptainParticipation.team_id !== teamId) {
+      await supabase
+        .from('auction_participations')
+        .update({ team_id: teamId, role: 'CAPTAIN' })
+        .eq('id', newCaptainParticipation.id)
     }
 
     return NextResponse.json({
@@ -141,7 +127,7 @@ export async function PUT(
       team: {
         id: updatedTeam.id,
         name: updatedTeam.name,
-        captainId: updatedTeam.captain_id
+        captainId: updatedTeam.captain_user_id
       }
     })
 

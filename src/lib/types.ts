@@ -3,7 +3,6 @@ export type AuctionStatus = 'DRAFT' | 'LOBBY' | 'LIVE' | 'COMPLETED' | 'ARCHIVED
 export type Visibility = 'PUBLIC' | 'PRIVATE'
 export type ParticipantRole = 'OWNER' | 'MODERATOR' | 'CAPTAIN' | 'VIEWER'
 export type PlayingRole = 'BATSMAN' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKETKEEPER'
-export type PlayerStatus = 'AVAILABLE' | 'SOLD' | 'UNSOLD'
 export type RoundStatus = 'PENDING' | 'OPEN' | 'CLOSED'
 
 // Organization types

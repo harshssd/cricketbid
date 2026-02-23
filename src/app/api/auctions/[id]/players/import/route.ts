@@ -99,7 +99,6 @@ export async function POST(
         playing_role: playerData.playingRole,
         tier_id: playerData.tierId,
         auction_id: auctionId,
-        status: 'AVAILABLE',
       }
 
       if (playerData.image) insertData.image = playerData.image
@@ -170,32 +169,43 @@ export async function GET(
 
     const { id: auctionId } = await params
 
-    const { data: players, error } = await supabase
-      .from('players')
-      .select(`
-        *,
-        tier:tiers!tier_id(id, name, base_price, color),
-        team_players(team:teams(id, name))
-      `)
-      .eq('auction_id', auctionId)
-      .order('status', { ascending: true })
-      .order('name', { ascending: true })
+    const [playersResult, auctionResultsResult] = await Promise.all([
+      supabase
+        .from('players')
+        .select(`
+          *,
+          tier:tiers!tier_id(id, name, base_price, color),
+          auction_results(team:teams(id, name))
+        `)
+        .eq('auction_id', auctionId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('auction_results')
+        .select('player_id')
+        .eq('auction_id', auctionId),
+    ])
 
-    if (error) {
-      throw error
-    }
+    if (playersResult.error) throw playersResult.error
+
+    const players = playersResult.data
+    const soldPlayerIds = new Set(
+      (auctionResultsResult.data || []).map(r => r.player_id)
+    )
 
     const playerStats = {
       total: players.length,
-      available: players.filter(p => p.status === 'AVAILABLE').length,
-      sold: players.filter(p => p.status === 'SOLD').length,
-      unsold: players.filter(p => p.status === 'UNSOLD').length,
+      sold: players.filter(p => soldPlayerIds.has(p.id)).length,
+      available: players.filter(p => !soldPlayerIds.has(p.id)).length,
     }
 
-    // Transform team_players → assigned_team for backward compat
+    // Transform auction_results → assigned_team for backward compat
     const transformedPlayers = players.map((p: any) => {
-      const { team_players: tp, ...rest } = p
-      return { ...rest, assigned_team: tp?.[0]?.team ?? null }
+      const { auction_results: ar, ...rest } = p
+      return {
+        ...rest,
+        status: soldPlayerIds.has(p.id) ? 'SOLD' : 'AVAILABLE',
+        assigned_team: ar?.[0]?.team ?? null,
+      }
     })
 
     return NextResponse.json({

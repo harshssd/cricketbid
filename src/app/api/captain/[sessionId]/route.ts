@@ -40,93 +40,77 @@ export async function GET(
       // Format: just auctionId — auto-detect user's team
       auctionId = sessionId
 
-      // Find the user's team: check captain_id first, then team_members, then participation
+      // Find the user's team: check captain_user_id first, then participation
       const { data: captainTeam } = await supabase
         .from('teams')
         .select('id')
         .eq('auction_id', auctionId)
-        .eq('captain_id', userId)
+        .eq('captain_user_id', userId)
         .maybeSingle()
 
       if (captainTeam) {
         teamId = captainTeam.id
       } else {
-        // Check team_members for CAPTAIN role
-        const { data: memberTeam } = await supabase
-          .from('team_members')
-          .select('team_id, team:teams!team_id(auction_id)')
+        // Check auction_participations with a team assignment
+        const { data: participation } = await supabase
+          .from('auction_participations')
+          .select('team_id, role')
+          .eq('auction_id', auctionId)
           .eq('user_id', userId)
-          .eq('role', 'CAPTAIN')
+          .not('team_id', 'is', null)
+          .maybeSingle()
 
-        const matchingMember = memberTeam?.find((m: any) => {
-          const t = m.team as any
-          return t?.auction_id === auctionId
-        })
-
-        if (matchingMember) {
-          teamId = matchingMember.team_id
+        if (participation?.team_id) {
+          teamId = participation.team_id
         } else {
-          // Check auction_participations with a team assignment
-          const { data: participation } = await supabase
-            .from('auction_participations')
-            .select('team_id, role')
-            .eq('auction_id', auctionId)
-            .eq('user_id', userId)
-            .not('team_id', 'is', null)
+          // For auction OWNER/MODERATOR without a team, pick the first team
+          const { data: ownerCheck } = await supabase
+            .from('auctions')
+            .select('owner_id')
+            .eq('id', auctionId)
             .maybeSingle()
 
-          if (participation?.team_id) {
-            teamId = participation.team_id
-          } else {
-            // For auction OWNER/MODERATOR without a team, pick the first team
-            const { data: ownerCheck } = await supabase
-              .from('auctions')
-              .select('owner_id')
-              .eq('id', auctionId)
-              .maybeSingle()
+          const { data: adminParticipation } = await supabase
+            .from('auction_participations')
+            .select('role')
+            .eq('auction_id', auctionId)
+            .eq('user_id', userId)
+            .in('role', ['OWNER', 'MODERATOR'])
+            .maybeSingle()
 
-            const { data: adminParticipation } = await supabase
-              .from('auction_participations')
-              .select('role')
+          if (ownerCheck?.owner_id === userId || adminParticipation) {
+            // Admin/owner with no specific team — get all teams and pick the first one
+            const { data: allTeams, error: teamsError } = await supabase
+              .from('teams')
+              .select('id, name, primary_color, secondary_color, captain_user_id, auction_results(player_id)')
               .eq('auction_id', auctionId)
-              .eq('user_id', userId)
-              .in('role', ['OWNER', 'MODERATOR'])
-              .maybeSingle()
+              .order('name')
 
-            if (ownerCheck?.owner_id === userId || adminParticipation) {
-              // Admin/owner with no specific team — get all teams and pick the first one
-              const { data: allTeams, error: teamsError } = await supabase
-                .from('teams')
-                .select('id, name, primary_color, secondary_color, captain_id, auction_results(player_id)')
-                .eq('auction_id', auctionId)
-                .order('name')
+            if (teamsError) {
+              console.error('Failed to fetch teams for selection:', teamsError)
+            }
 
-              if (teamsError) {
-                console.error('Failed to fetch teams for selection:', teamsError)
-              }
-
-              if (allTeams && allTeams.length > 0) {
-                // Auto-select first team, include list of all teams for switching
-                teamId = allTeams[0].id
-                switchableTeams = allTeams.map((t: any) => ({
-                  id: t.id,
-                  name: t.name,
-                  primaryColor: t.primary_color,
-                  secondaryColor: t.secondary_color,
-                  playerCount: t.auction_results?.length ?? 0,
-                }))
-              } else {
-                return NextResponse.json(
-                  { error: 'No teams found in this auction' },
-                  { status: 404 }
-                )
-              }
+            if (allTeams && allTeams.length > 0) {
+              // Auto-select first team, include list of all teams for switching
+              teamId = allTeams[0].id
+              switchableTeams = allTeams.map((t: any) => ({
+                id: t.id,
+                name: t.name,
+                primaryColor: t.primary_color,
+                secondaryColor: t.secondary_color,
+                playerCount: t.auction_results?.length ?? 0,
+              }))
             } else {
               return NextResponse.json(
-                { error: 'No team found for this user in the auction. You may need a team assignment.' },
+                { error: 'No teams found in this auction' },
                 { status: 404 }
               )
             }
+          } else {
+            return NextResponse.json(
+              { error: 'No team found for this user in the auction. You may need a team assignment.' },
+              { status: 404 }
+            )
           }
         }
       }
@@ -171,8 +155,8 @@ export async function GET(
     const { data: team, error: teamError } = await supabase
       .from('teams')
       .select(`
-        id, name, primary_color, secondary_color, logo, budget_remaining, captain_id,
-        captain:users!captain_id(id, name, email, image),
+        id, name, primary_color, secondary_color, logo, captain_user_id,
+        captain:users!captain_user_id(id, name, email, image),
         auction_results(player_id)
       `)
       .eq('id', teamId)
@@ -202,7 +186,7 @@ export async function GET(
     // ── Fetch all players for this auction ─────────────────────
     const { data: allPlayers } = await supabase
       .from('players')
-      .select('id, name, image, playing_role, batting_style, bowling_style, custom_tags, status, tier_id, user_id')
+      .select('id, name, image, playing_role, batting_style, bowling_style, custom_tags, tier_id, user_id')
       .eq('auction_id', auctionId)
 
     // ── Fetch team's acquired players (via auction_results) ────
@@ -212,6 +196,16 @@ export async function GET(
       .eq('auction_id', auctionId)
       .eq('team_id', teamId)
 
+    // ── Fetch ALL auction results (for progress stats) ─────────
+    const { data: allAuctionResults } = await supabase
+      .from('auction_results')
+      .select('player_id')
+      .eq('auction_id', auctionId)
+
+    const allSoldPlayerIds = new Set(
+      (allAuctionResults || []).map(r => r.player_id)
+    )
+
     // ── Fetch bid history for this team's captain ──────────────
     const { data: bidHistory } = await supabase
       .from('bids')
@@ -220,7 +214,7 @@ export async function GET(
         round:rounds!round_id(id, status, tier_id),
         player:players!player_id(id, name, playing_role, tier_id)
       `)
-      .eq('captain_id', userId)
+      .eq('team_id', teamId)
       .order('submitted_at', { ascending: false })
       .limit(50)
 
@@ -280,7 +274,7 @@ export async function GET(
         .from('bids')
         .select('amount, submitted_at, is_winning_bid')
         .eq('round_id', currentRound.id)
-        .eq('captain_id', userId)
+        .eq('team_id', teamId)
         .maybeSingle()
 
       currentRoundData = {
@@ -354,16 +348,23 @@ export async function GET(
         minPerTeam: tier.min_per_team || 0,
         maxPerTeam: tier.max_per_team || 99,
         totalPlayers: playersInTier.length,
-        availablePlayers: playersInTier.filter(p => p.status === 'AVAILABLE').length,
+        availablePlayers: playersInTier.filter(p => !allSoldPlayerIds.has(p.id)).length,
         acquiredCount: acquiredInTier,
         fulfilled: acquiredInTier >= (tier.min_per_team || 0),
       }
     })
 
+    // ── Fetch computed budget from view ─────────────────────────
+    const { data: teamBudget } = await supabase
+      .from('team_budgets')
+      .select('total_budget, spent, budget_remaining')
+      .eq('team_id', teamId)
+      .maybeSingle()
+
     // ── Budget analytics ───────────────────────────────────────
     const totalBudget = auction.budget_per_team
-    const remaining = team.budget_remaining ?? totalBudget
-    const spent = totalBudget - remaining
+    const remaining = teamBudget?.budget_remaining ?? totalBudget
+    const spent = teamBudget?.spent ?? 0
     const numTeams = (auctionTeams || []).length || 1
     const captainPlayerIds = new Set(
       (auctionTeams || []).map(t => t.captain_player_id).filter(Boolean)
@@ -423,11 +424,12 @@ export async function GET(
     }
 
     // ── Auction progress ───────────────────────────────────────
+    const totalPlayerCount = allPlayers?.length || 0
+    const soldCount = allSoldPlayerIds.size
     const auctionProgress = {
-      totalPlayers: allPlayers?.length || 0,
-      soldPlayers: allPlayers?.filter(p => p.status === 'SOLD').length || 0,
-      unsoldPlayers: allPlayers?.filter(p => p.status === 'UNSOLD').length || 0,
-      availablePlayers: allPlayers?.filter(p => p.status === 'AVAILABLE').length || 0,
+      totalPlayers: totalPlayerCount,
+      soldPlayers: soldCount,
+      availablePlayers: totalPlayerCount - soldCount,
       currentRoundNumber: allRounds?.filter(r => r.status === 'CLOSED').length || 0,
       totalRounds: allRounds?.length || 0,
     }

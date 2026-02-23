@@ -53,11 +53,11 @@ export async function POST(
         primary_color: teamData.primaryColor || '#3B82F6',
         secondary_color: teamData.secondaryColor || '#1B2A4A',
         logo: teamData.logo,
-        captain_id: teamData.captainId,
+        captain_user_id: teamData.captainId,
         max_members: teamData.maxMembers || 11,
         club_id: clubId,
       })
-      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .select('*, captain:users!captain_user_id(id, name, email, image)')
       .single()
 
     if (createError) {
@@ -69,13 +69,12 @@ export async function POST(
       ...team,
       primaryColor: team.primary_color,
       secondaryColor: team.secondary_color,
-      captainId: team.captain_id,
+      captainId: team.captain_user_id,
       maxMembers: team.max_members,
       isActive: team.is_active,
       clubId: team.club_id,
       createdAt: team.created_at,
-      _count: { members: team.members?.length ?? 0 },
-      members: undefined,
+      _count: { members: 0 },
     }
 
     return NextResponse.json({
@@ -113,7 +112,7 @@ export async function GET(
 
     let query = supabase
       .from('teams')
-      .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+      .select('*, captain:users!captain_user_id(id, name, email, image)')
       .eq('club_id', clubId)
       .order('is_active', { ascending: false })
       .order('created_at', { ascending: false })
@@ -133,13 +132,12 @@ export async function GET(
       ...team,
       primaryColor: team.primary_color,
       secondaryColor: team.secondary_color,
-      captainId: team.captain_id,
+      captainId: team.captain_user_id,
       maxMembers: team.max_members,
       isActive: team.is_active,
       clubId: team.club_id,
       createdAt: team.created_at,
-      _count: { members: team.members?.length ?? 0 },
-      members: undefined,
+      _count: { members: 0 },
     }))
 
     return NextResponse.json({ teams: transformedTeams })
@@ -218,12 +216,12 @@ export async function PUT(
             ...(updateData.primaryColor !== undefined && { primary_color: updateData.primaryColor }),
             ...(updateData.secondaryColor !== undefined && { secondary_color: updateData.secondaryColor }),
             ...(updateData.logo !== undefined && { logo: updateData.logo }),
-            ...(updateData.captainId !== undefined && { captain_id: updateData.captainId }),
+            ...(updateData.captainId !== undefined && { captain_user_id: updateData.captainId }),
             ...(updateData.maxMembers !== undefined && { max_members: updateData.maxMembers }),
             ...(updateData.isActive !== undefined && { is_active: updateData.isActive }),
           })
           .eq('id', id)
-          .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+          .select('*, captain:users!captain_user_id(id, name, email, image)')
           .single()
 
         if (updateError) {
@@ -234,13 +232,12 @@ export async function PUT(
           ...updatedTeam,
           primaryColor: updatedTeam.primary_color,
           secondaryColor: updatedTeam.secondary_color,
-          captainId: updatedTeam.captain_id,
+          captainId: updatedTeam.captain_user_id,
           maxMembers: updatedTeam.max_members,
           isActive: updatedTeam.is_active,
           clubId: updatedTeam.club_id,
           createdAt: updatedTeam.created_at,
-          _count: { members: updatedTeam.members?.length ?? 0 },
-          members: undefined,
+          _count: { members: 0 },
         })
       } else if (!id) {
         // Create new team - ensure required fields are present
@@ -256,12 +253,12 @@ export async function PUT(
             primary_color: updateData.primaryColor || '#3B82F6',
             secondary_color: updateData.secondaryColor || '#1B2A4A',
             logo: updateData.logo,
-            captain_id: updateData.captainId,
+            captain_user_id: updateData.captainId,
             max_members: updateData.maxMembers || 11,
             is_active: updateData.isActive ?? true,
             club_id: clubId,
           })
-          .select('*, captain:users!captain_id(id, name, email, image), members:team_members(id)')
+          .select('*, captain:users!captain_user_id(id, name, email, image)')
           .single()
 
         if (createError) {
@@ -272,13 +269,12 @@ export async function PUT(
           ...newTeam,
           primaryColor: newTeam.primary_color,
           secondaryColor: newTeam.secondary_color,
-          captainId: newTeam.captain_id,
+          captainId: newTeam.captain_user_id,
           maxMembers: newTeam.max_members,
           isActive: newTeam.is_active,
           clubId: newTeam.club_id,
           createdAt: newTeam.created_at,
-          _count: { members: newTeam.members?.length ?? 0 },
-          members: undefined,
+          _count: { members: 0 },
         })
       }
     }

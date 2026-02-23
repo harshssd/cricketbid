@@ -55,7 +55,7 @@ export async function GET(
     // Fetch team with captain
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('id, name, captain_id, captain:users!captain_id(id, name, email, image)')
+      .select('id, name, captain_user_id, captain:users!captain_user_id(id, name, email, image)')
       .eq('id', teamId)
       .eq('auction_id', auctionId)
       .maybeSingle()
@@ -81,14 +81,15 @@ export async function GET(
       )
     }
 
-    // Fetch team members with CAPTAIN or MEMBER role
-    const { data: members, error: membersError } = await supabase
-      .from('team_members')
+    // Fetch auction participations for this team
+    const { data: participations, error: participationsError } = await supabase
+      .from('auction_participations')
       .select('role, user:users!user_id(id, name, email, image)')
       .eq('team_id', teamId)
-      .in('role', ['CAPTAIN', 'MEMBER'])
+      .eq('auction_id', auctionId)
+      .in('role', ['CAPTAIN', 'OWNER', 'MODERATOR', 'MEMBER'])
 
-    if (membersError) throw membersError
+    if (participationsError) throw participationsError
 
     // Build admin list
     const admins: Array<{
@@ -112,18 +113,18 @@ export async function GET(
       })
     }
 
-    // Add team members with admin roles
-    if (members) {
-      members.forEach((member) => {
-        const user = member.user as unknown as { id: string; name: string; email: string; image: string | null }
+    // Add team participants with admin roles
+    if (participations) {
+      participations.forEach((p) => {
+        const user = p.user as unknown as { id: string; name: string; email: string; image: string | null }
         if (user.id !== captain?.id) { // Don't duplicate captain
           admins.push({
             id: user.id,
             name: user.name,
             email: user.email,
             image: user.image,
-            role: member.role,
-            source: 'team_member'
+            role: p.role,
+            source: 'auction_participation'
           })
         }
       })
@@ -191,7 +192,7 @@ export async function POST(
     // Fetch team with captain
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .select('id, name, captain_user_id, captain:users!captain_user_id(id, name, email)')
       .eq('id', teamId)
       .eq('auction_id', auctionId)
       .maybeSingle()
@@ -233,30 +234,31 @@ export async function POST(
       )
     }
 
-    // Check if user is already a member
-    const { data: existingMember, error: existingError } = await supabase
-      .from('team_members')
+    // Check if user already has a participation for this auction+team
+    const { data: existingParticipation, error: existingError } = await supabase
+      .from('auction_participations')
       .select('*')
+      .eq('auction_id', auctionId)
       .eq('team_id', teamId)
       .eq('user_id', userToAdd.id)
       .maybeSingle()
 
     if (existingError) throw existingError
 
-    if (existingMember) {
-      // Update existing member's role
+    if (existingParticipation) {
+      // Update existing participation's role
       const { error: updateError } = await supabase
-        .from('team_members')
+        .from('auction_participations')
         .update({ role })
-        .eq('team_id', teamId)
-        .eq('user_id', userToAdd.id)
+        .eq('id', existingParticipation.id)
 
       if (updateError) throw updateError
     } else {
-      // Create new team member
+      // Create new auction participation with team assignment
       const { error: createError } = await supabase
-        .from('team_members')
+        .from('auction_participations')
         .insert({
+          auction_id: auctionId,
           team_id: teamId,
           user_id: userToAdd.id,
           role
@@ -335,7 +337,7 @@ export async function DELETE(
     // Fetch team with captain
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('id, name, captain_id, captain:users!captain_id(id, name, email)')
+      .select('id, name, captain_user_id, captain:users!captain_user_id(id, name, email)')
       .eq('id', teamId)
       .eq('auction_id', auctionId)
       .maybeSingle()
@@ -369,10 +371,11 @@ export async function DELETE(
       )
     }
 
-    // Remove team member
-    const { data: deletedMember, error: deleteError } = await supabase
-      .from('team_members')
+    // Remove auction participation for this team
+    const { data: deletedParticipation, error: deleteError } = await supabase
+      .from('auction_participations')
       .delete()
+      .eq('auction_id', auctionId)
       .eq('team_id', teamId)
       .eq('user_id', userIdToRemove)
       .select('*, user:users!user_id(name, email)')
@@ -380,7 +383,7 @@ export async function DELETE(
 
     if (deleteError) throw deleteError
 
-    const deletedUser = deletedMember.user as unknown as { name: string; email: string }
+    const deletedUser = deletedParticipation.user as unknown as { name: string; email: string }
 
     return NextResponse.json({
       success: true,

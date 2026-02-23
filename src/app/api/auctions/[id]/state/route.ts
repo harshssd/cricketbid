@@ -7,7 +7,7 @@ interface RouteParams {
   }>
 }
 
-// GET - Load auction runtime state
+// GET - Load auction queue state
 export async function GET(
   request: NextRequest,
   { params }: RouteParams
@@ -18,7 +18,7 @@ export async function GET(
 
     const { data: auction, error } = await supabase
       .from('auctions')
-      .select('id, status, runtime_state')
+      .select('id, status, queue_state')
       .eq('id', auctionId)
       .maybeSingle()
 
@@ -30,7 +30,7 @@ export async function GET(
 
     return NextResponse.json({
       status: auction.status,
-      runtimeState: auction.runtime_state,
+      queueState: auction.queue_state,
     })
   } catch (error) {
     console.error('Failed to load auction state:', error)
@@ -38,7 +38,7 @@ export async function GET(
   }
 }
 
-// PUT - Save auction runtime state (full replace)
+// PUT - Save auction queue state (full replace)
 export async function PUT(
   request: NextRequest,
   { params }: RouteParams
@@ -48,17 +48,17 @@ export async function PUT(
     const { id: auctionId } = await params
     const body = await request.json()
 
-    const { runtimeState, status } = body
+    const { queueState, status } = body
 
     const updateData: Record<string, any> = {}
-    if (runtimeState !== undefined) updateData.runtime_state = runtimeState
+    if (queueState !== undefined) updateData.queue_state = queueState
     if (status) updateData.status = status
 
     const { data: auction, error } = await supabase
       .from('auctions')
       .update(updateData)
       .eq('id', auctionId)
-      .select('id, status, runtime_state')
+      .select('id, status, queue_state')
       .single()
 
     if (error) throw error
@@ -66,7 +66,7 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       status: auction.status,
-      runtimeState: auction.runtime_state,
+      queueState: auction.queue_state,
     })
   } catch (error) {
     console.error('Failed to save auction state:', error)

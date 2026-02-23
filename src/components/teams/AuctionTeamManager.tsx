@@ -25,7 +25,6 @@ interface PlayerInfo {
   name: string
   image?: string
   playingRole: string
-  status: string
   tier?: { name: string; color: string }
 }
 
@@ -123,13 +122,12 @@ export function AuctionTeamManager({
       const response = await fetch(`/api/auctions/${auctionId}/players/import`)
       const data = await response.json()
       if (data.players) {
-        const unassigned = data.players.filter((p: any) => !p.assignedTeam)
+        const unassigned = data.players.filter((p: any) => !p.assignedTeam && !p.assigned_team)
         setAvailablePlayers(unassigned.map((p: any) => ({
           id: p.id,
           name: p.name,
           image: p.image,
           playingRole: p.playing_role || p.playingRole,
-          status: p.status,
           tier: p.tier ? { name: p.tier.name, color: p.tier.color } : undefined,
         })))
       }
@@ -151,7 +149,6 @@ export function AuctionTeamManager({
           name: p.name,
           image: p.image,
           playingRole: p.playing_role || p.playingRole,
-          status: p.status,
           tier: p.tier ? { name: p.tier.name, color: p.tier.color } : undefined,
         })))
       }

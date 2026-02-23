@@ -98,30 +98,27 @@ export async function POST(request: NextRequest) {
       .insert({
         name: teamData.name,
         description: teamData.description,
-        captain_id: teamData.captainId,
+        captain_user_id: teamData.captainId,
         max_members: teamData.maxMembers,
         club_id: teamData.clubId,
         league_id: teamData.leagueId,
         auction_id: teamData.auctionId,
-        budget_remaining: teamData.budgetRemaining,
       })
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
+        captain:users!captain_user_id(id, name, email, image),
         club:clubs!club_id(id, name, logo),
         league:leagues!league_id(id, name, logo),
         auction:auctions!auction_id(id, name),
-        team_members(id)
       `)
       .single()
 
     if (createError) throw createError
 
     // Transform to match expected shape
-    const { team_members, ...rest } = team
     const result = {
-      ...rest,
-      _count: { members: team_members?.length ?? 0 }
+      ...team,
+      _count: { members: 0 }
     }
 
     return NextResponse.json({
@@ -161,11 +158,10 @@ export async function GET(request: NextRequest) {
       .from('teams')
       .select(`
         *,
-        captain:users!captain_id(id, name, email, image),
+        captain:users!captain_user_id(id, name, email, image),
         club:clubs!club_id(id, name, logo),
         league:leagues!league_id(id, name, logo),
         auction:auctions!auction_id(id, name),
-        team_members(id)
       `)
 
     if (clubId) query = query.eq('club_id', clubId)
@@ -180,9 +176,9 @@ export async function GET(request: NextRequest) {
     if (error) throw error
 
     // Transform to match expected shape with _count
-    const teams = (teamsRaw ?? []).map(({ team_members, ...rest }) => ({
+    const teams = (teamsRaw ?? []).map((rest) => ({
       ...rest,
-      _count: { members: team_members?.length ?? 0 }
+      _count: { members: 0 }
     }))
 
     return NextResponse.json({ teams })
@@ -222,12 +218,12 @@ export async function PUT(request: NextRequest) {
       const snakeCaseData: Record<string, unknown> = {}
       if (updateData.name !== undefined) snakeCaseData.name = updateData.name
       if (updateData.description !== undefined) snakeCaseData.description = updateData.description
-      if (updateData.captainId !== undefined) snakeCaseData.captain_id = updateData.captainId
+      if (updateData.captainId !== undefined) snakeCaseData.captain_user_id = updateData.captainId
       if (updateData.maxMembers !== undefined) snakeCaseData.max_members = updateData.maxMembers
       if (updateData.clubId !== undefined) snakeCaseData.club_id = updateData.clubId
       if (updateData.leagueId !== undefined) snakeCaseData.league_id = updateData.leagueId
       if (updateData.auctionId !== undefined) snakeCaseData.auction_id = updateData.auctionId
-      if (updateData.budgetRemaining !== undefined) snakeCaseData.budget_remaining = updateData.budgetRemaining
+      // budget_remaining is now computed from team_budgets view
       if (updateData.isActive !== undefined) snakeCaseData.is_active = updateData.isActive
 
       const { data: updatedTeam, error: updateError } = await supabase
@@ -236,20 +232,18 @@ export async function PUT(request: NextRequest) {
         .eq('id', id)
         .select(`
           *,
-          captain:users!captain_id(id, name, email, image),
+          captain:users!captain_user_id(id, name, email, image),
           club:clubs!club_id(id, name, logo),
           league:leagues!league_id(id, name, logo),
           auction:auctions!auction_id(id, name),
-          team_members(id)
-        `)
+          `)
         .single()
 
       if (updateError) throw updateError
 
-      const { team_members, ...rest } = updatedTeam
       updatedTeams.push({
-        ...rest,
-        _count: { members: team_members?.length ?? 0 }
+        ...updatedTeam,
+        _count: { members: 0 }
       })
     }
 

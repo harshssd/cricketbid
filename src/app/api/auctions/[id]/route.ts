@@ -23,10 +23,9 @@ export async function GET(
         league:leagues!league_id(id, name),
         teams(
           *,
-          captain:users!captain_id(id, name, email, image),
+          captain:users!captain_user_id(id, name, email, image),
           captain_player:players!teams_captain_player_id_fkey(id, name, playing_role),
-          team_players(player:players(id, name, playing_role, status)),
-          team_members(id)
+          auction_results(winning_bid_amount, player:players(id, name, playing_role))
         ),
         tiers(
           *,
@@ -35,8 +34,9 @@ export async function GET(
         players(
           *,
           tier:tiers!tier_id(id, name, base_price, color),
-          team_players(team:teams(id, name))
+          auction_results(team:teams(id, name))
         ),
+        auction_results(player_id),
         auction_participations(
           *,
           user:users!user_id(id, name, email, image),
@@ -72,12 +72,15 @@ export async function GET(
       (a.sort_order ?? 0) - (b.sort_order ?? 0)
     )
 
-    // Sort players by status asc, then name asc
-    const sortedPlayers = [...(auction.players || [])].sort((a: any, b: any) => {
-      const statusCmp = (a.status || '').localeCompare(b.status || '')
-      if (statusCmp !== 0) return statusCmp
-      return (a.name || '').localeCompare(b.name || '')
-    })
+    // Build set of sold player IDs from auction_results
+    const soldPlayerIds = new Set(
+      (auction.auction_results || []).map((r: any) => r.player_id)
+    )
+
+    // Sort players by name asc
+    const sortedPlayers = [...(auction.players || [])].sort((a: any, b: any) =>
+      (a.name || '').localeCompare(b.name || '')
+    )
 
     // Sort participations by role asc, then joined_at asc
     const sortedParticipations = [...(auction.auction_participations || [])].sort((a: any, b: any) => {
@@ -93,13 +96,14 @@ export async function GET(
 
     const playerStats = {
       total: sortedPlayers.length,
-      available: sortedPlayers.filter((p: any) => p.status === 'AVAILABLE').length,
-      sold: sortedPlayers.filter((p: any) => p.status === 'SOLD').length,
-      unsold: sortedPlayers.filter((p: any) => p.status === 'UNSOLD').length,
+      sold: sortedPlayers.filter((p: any) => soldPlayerIds.has(p.id)).length,
+      available: sortedPlayers.filter((p: any) => !soldPlayerIds.has(p.id)).length,
     }
 
     const teamStats = sortedTeams.map((team: any) => {
-      const players = (team.team_players || []).map((tp: any) => tp.player).filter(Boolean)
+      const results = team.auction_results || []
+      const players = results.map((ar: any) => ar.player).filter(Boolean)
+      const budgetSpent = results.reduce((sum: number, ar: any) => sum + (ar.winning_bid_amount || 0), 0)
       return {
         id: team.id,
         name: team.name,
@@ -110,14 +114,14 @@ export async function GET(
           name: team.captain_player.name,
           playingRole: team.captain_player.playing_role,
         } : null,
-        budgetRemaining: team.budget_remaining ?? auction.budget_per_team,
-        budgetSpent: auction.budget_per_team - (team.budget_remaining ?? auction.budget_per_team),
+        budgetRemaining: auction.budget_per_team - budgetSpent,
+        budgetSpent,
         playerCount: players.length,
-        players: players.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          playingRole: p.playing_role,
-          status: p.status,
+        players: results.filter((ar: any) => ar.player).map((ar: any) => ({
+          id: ar.player.id,
+          name: ar.player.name,
+          playingRole: ar.player.playing_role,
+          price: ar.winning_bid_amount || 0,
         })),
       }
     })
@@ -136,7 +140,7 @@ export async function GET(
 
     // Transform players to camelCase
     const transformedPlayers = sortedPlayers.map((p: any) => {
-      const assignedTeam = p.team_players?.[0]?.team ?? null
+      const assignedTeam = p.auction_results?.[0]?.team ?? null
       return {
         id: p.id,
         name: p.name,
@@ -144,7 +148,7 @@ export async function GET(
         playingRole: p.playing_role,
         battingStyle: p.batting_style,
         bowlingStyle: p.bowling_style,
-        status: p.status,
+        status: soldPlayerIds.has(p.id) ? 'SOLD' : 'AVAILABLE',
         auctionId: p.auction_id,
         tierId: p.tier_id,
         customTags: p.custom_tags,
@@ -184,7 +188,10 @@ export async function GET(
       auctionId: r.auction_id,
       tierId: r.tier_id,
       status: r.status,
-      runtimeState: r.runtime_state,
+      playerId: r.player_id,
+      openedAt: r.opened_at,
+      closedAt: r.closed_at,
+      timerSeconds: r.timer_seconds,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       tier: r.tier ? {
@@ -231,6 +238,7 @@ export async function GET(
       currencyIcon: auction.currency_icon,
       squadSize: auction.squad_size,
       leagueId: auction.league_id,
+      queueState: auction.queue_state,
       createdAt: auction.created_at,
       updatedAt: auction.updated_at,
       owner: auction.owner,
@@ -280,7 +288,7 @@ export async function PATCH(
       squadSize: 'squad_size',
       leagueId: 'league_id',
       ownerId: 'owner_id',
-      runtimeState: 'runtime_state',
+      queueState: 'queue_state',
       isActive: 'is_active',
       maxMembers: 'max_members',
     }
@@ -301,8 +309,8 @@ export async function PATCH(
         owner:users!owner_id(id, name, email, image),
         teams(
           *,
-          captain:users!captain_id(id, name, email, image),
-          team_players(player_id)
+          captain:users!captain_user_id(id, name, email, image),
+          auction_results(player_id)
         )
       `)
       .single()
@@ -311,30 +319,17 @@ export async function PATCH(
       throw updateError
     }
 
-    // If budgetPerTeam was updated, also update all team budgetRemaining
-    if (updates.budgetPerTeam !== undefined) {
-      const { error: teamUpdateError } = await supabase
-        .from('teams')
-        .update({ budget_remaining: updates.budgetPerTeam })
-        .eq('auction_id', auctionId)
-
-      if (teamUpdateError) {
-        throw teamUpdateError
-      }
-    }
-
     // Transform response to camelCase to match original API shape
     const transformedTeams = (auction.teams || []).map((team: any) => ({
       id: team.id,
       name: team.name,
       auctionId: team.auction_id,
-      captainId: team.captain_id,
-      budgetRemaining: team.budget_remaining,
+      captainId: team.captain_user_id,
       createdAt: team.created_at,
       updatedAt: team.updated_at,
       captain: team.captain,
       _count: {
-        players: (team.team_players || []).length,
+        players: (team.auction_results || []).length,
       },
     }))
 

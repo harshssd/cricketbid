@@ -22,9 +22,8 @@ const updateTeamsSchema = z.array(z.object({
 // doesn't reliably resolve it). We resolve captain_player manually afterwards.
 const teamSelectQuery = `
   *,
-  captain:users!teams_captain_id_fkey(id, name, email, image),
-  team_players(player:players(id, name, playing_role)),
-  team_members(id)
+  captain:users!teams_captain_user_id_fkey(id, name, email, image),
+  auction_results(player:players(id, name, playing_role))
 `
 
 // Resolve captain_player for an array of teams by looking up from the players table
@@ -56,16 +55,16 @@ async function resolveCaptainPlayers(
 }
 
 // Transform a raw Supabase team row (with resolved captain_player and unwrapped
-// team_players) into the camelCase shape the frontend expects.
-function transformTeam(raw: any, players: any[], memberCount: number, participationCount?: number) {
+// auction_results) into the camelCase shape the frontend expects.
+function transformTeam(raw: any, players: any[], participationCount?: number) {
   return {
     id: raw.id,
     auctionId: raw.auction_id,
     name: raw.name,
     description: raw.description,
-    captainId: raw.captain_id,
+    captainId: raw.captain_user_id,
     captainPlayerId: raw.captain_player_id,
-    budgetRemaining: raw.budget_remaining,
+    // budgetRemaining is computed from team_budgets view when needed
     captain: raw.captain,
     captainPlayer: raw.captain_player ? {
       id: raw.captain_player.id,
@@ -76,7 +75,6 @@ function transformTeam(raw: any, players: any[], memberCount: number, participat
     players,
     _count: {
       players: players.length,
-      members: memberCount,
       ...(participationCount !== undefined && { participations: participationCount }),
     },
   }
@@ -133,13 +131,13 @@ export async function PUT(
           description: teamData.description,
         }
         if (teamData.captainId !== undefined) {
-          updateData.captain_id = teamData.captainId
+          updateData.captain_user_id = teamData.captainId
         }
         if (teamData.captainPlayerId !== undefined) {
           updateData.captain_player_id = teamData.captainPlayerId
         }
         if (teamData.budgetRemaining !== undefined) {
-          updateData.budget_remaining = teamData.budgetRemaining
+          // budget_remaining is now computed from team_budgets view
         }
 
         const { data: updatedTeam, error: updateError } = await supabase
@@ -151,9 +149,9 @@ export async function PUT(
 
         if (updateError) throw updateError
 
-        const { team_players, team_members, ...rest } = updatedTeam
-        const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
-        updatedTeams.push(transformTeam(rest, players, team_members?.length ?? 0))
+        const { auction_results: ar, ...rest } = updatedTeam
+        const players = (ar ?? []).map((r: any) => r.player).filter(Boolean)
+        updatedTeams.push(transformTeam(rest, players))
       } else {
         // Create new team
         const { data: newTeam, error: createError } = await supabase
@@ -162,18 +160,18 @@ export async function PUT(
             auction_id: auctionId,
             name: teamData.name,
             description: teamData.description,
-            captain_id: teamData.captainId || undefined,
+            captain_user_id: teamData.captainId || undefined,
             captain_player_id: teamData.captainPlayerId || undefined,
-            budget_remaining: teamData.budgetRemaining || auction.budget_per_team,
+            // budget_remaining is computed from team_budgets view
           })
           .select(teamSelectQuery)
           .single()
 
         if (createError) throw createError
 
-        const { team_players, team_members, ...rest } = newTeam
-        const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
-        updatedTeams.push(transformTeam(rest, players, team_members?.length ?? 0))
+        const { auction_results: ar, ...rest } = newTeam
+        const players = (ar ?? []).map((r: any) => r.player).filter(Boolean)
+        updatedTeams.push(transformTeam(rest, players))
       }
     }
 
@@ -240,19 +238,17 @@ export async function GET(
       .from('teams')
       .select(`
         *,
-        captain:users!teams_captain_id_fkey(id, name, email, image),
-        team_players(
+        captain:users!teams_captain_user_id_fkey(id, name, email, image),
+        auction_results(
           player:players(
             id,
             name,
             image,
             playing_role,
             tier_id,
-            status,
             tier:tiers!tier_id(name, color)
           )
         ),
-        team_members(id),
         auction_participations(id)
       `)
       .eq('auction_id', auctionId)
@@ -264,9 +260,9 @@ export async function GET(
     const teamsWithCaptains = await resolveCaptainPlayers(supabase, teamsRaw ?? [])
 
     // Transform to camelCase shape with _count
-    const teams = teamsWithCaptains.map(({ team_players, team_members, auction_participations, ...rest }) => {
-      const players = (team_players ?? []).map((tp: any) => tp.player).filter(Boolean)
-      return transformTeam(rest, players, team_members?.length ?? 0, auction_participations?.length ?? 0)
+    const teams = teamsWithCaptains.map(({ auction_results: ar, auction_participations, ...rest }) => {
+      const players = (ar ?? []).map((r: any) => r.player).filter(Boolean)
+      return transformTeam(rest, players, auction_participations?.length ?? 0)
     })
 
     return NextResponse.json({

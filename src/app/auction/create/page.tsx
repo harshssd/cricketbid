@@ -132,7 +132,7 @@ function CreateAuctionContent() {
         auctionQueue: [],
         auctionIndex: 0,
         auctionStarted: false,
-        soldPlayers: {},
+        soldPlayers: [],
         unsoldPlayers: [],
         deferredPlayers: [],
         auctionHistory: [],

@@ -36,7 +36,7 @@ export async function GET(
     // ── Fetch auction details ──────────────────────────────────
     const { data: auction, error: auctionError } = await supabase
       .from('auctions')
-      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size, runtime_state')
+      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size')
       .eq('id', auctionId)
       .maybeSingle()
 
@@ -50,7 +50,7 @@ export async function GET(
     // ── Fetch team details ─────────────────────────────────────
     const { data: team, error: teamError } = await supabase
       .from('teams')
-      .select('id, name, budget_remaining, captain_id')
+      .select('id, name, captain_user_id')
       .eq('id', teamId)
       .eq('auction_id', auctionId)
       .maybeSingle()
@@ -73,13 +73,13 @@ export async function GET(
     // ── Fetch all players for this auction ─────────────────────
     const { data: allPlayers } = await supabase
       .from('players')
-      .select('id, name, image, playing_role, batting_style, bowling_style, custom_tags, status, tier_id')
+      .select('id, name, image, playing_role, batting_style, bowling_style, custom_tags, tier_id')
       .eq('auction_id', auctionId)
 
     // ── Fetch all teams (for captain IDs + all-squads view) ─────
     const { data: allTeams } = await supabase
       .from('teams')
-      .select('id, name, budget_remaining, captain_player_id')
+      .select('id, name, captain_player_id')
       .eq('auction_id', auctionId)
       .order('name')
 
@@ -198,62 +198,6 @@ export async function GET(
       }
     }
 
-    // ── Fallback: derive current player from runtime_state ────
-    // If no open round exists in DB but auctioneer has a current player
-    // in runtime_state, show it to the bidder (bidding disabled since
-    // timeRemaining is null → canBid requires timeLeft > 0).
-    if (!currentRoundData && auction.runtime_state) {
-      try {
-        const rs = auction.runtime_state as {
-          auctionStarted?: boolean
-          auctionQueue?: string[]
-          auctionIndex?: number
-        }
-        if (
-          rs.auctionStarted &&
-          rs.auctionQueue &&
-          typeof rs.auctionIndex === 'number' &&
-          rs.auctionIndex < rs.auctionQueue.length
-        ) {
-          const currentPlayerName = rs.auctionQueue[rs.auctionIndex]
-          const player = allPlayers?.find(
-            p => p.name === currentPlayerName
-          )
-          if (player) {
-            const tier = tiers?.find(t => t.id === player.tier_id)
-            currentRoundData = {
-              id: `rt-${player.id}`,
-              playerId: player.id,
-              tierId: player.tier_id,
-              status: 'OPEN',
-              timeRemaining: null,
-              maxTime: 0,
-              player: {
-                id: player.id,
-                name: player.name,
-                image: player.image,
-                playingRole: player.playing_role,
-                battingStyle: player.batting_style,
-                bowlingStyle: player.bowling_style,
-                customTags: player.custom_tags,
-                tier: tier
-                  ? { id: tier.id, name: tier.name, basePrice: tier.base_price, color: tier.color }
-                  : null,
-              },
-              tier: tier
-                ? { id: tier.id, name: tier.name, basePrice: tier.base_price, color: tier.color }
-                : null,
-              myBid: undefined,
-              highestBid: undefined,
-              totalBids: 0,
-            }
-          }
-        }
-      } catch {
-        // runtime_state parse failed — ignore, bidder sees "Waiting"
-      }
-    }
-
     // ── Build squad list ───────────────────────────────────────
     const squad = (auctionResults || []).map(result => {
       const player = allPlayers?.find(p => p.id === result.player_id)
@@ -268,10 +212,17 @@ export async function GET(
       }
     })
 
+    // ── Fetch computed budget from view ─────────────────────────
+    const { data: teamBudget } = await supabase
+      .from('team_budgets')
+      .select('total_budget, spent, budget_remaining')
+      .eq('team_id', teamId)
+      .maybeSingle()
+
     // ── Budget analytics ───────────────────────────────────────
     const totalBudget = auction.budget_per_team
-    const remaining = team.budget_remaining ?? totalBudget
-    const spent = totalBudget - remaining
+    const remaining = teamBudget?.budget_remaining ?? totalBudget
+    const spent = teamBudget?.spent ?? 0
     const numTeams = (allTeams || []).length || 1
     const auctionableCount = (allPlayers || []).filter(p => !captainPlayerIds.has(p.id)).length
     // Display squad size = max slots any team could fill (ceil)
@@ -299,14 +250,27 @@ export async function GET(
 
     // ── Auction progress ───────────────────────────────────────
     // Exclude captain-assigned players — they're pre-assigned to teams, not available for auction
+    const allSoldPlayerIds = new Set(
+      (allAuctionResults || []).map(r => r.player_id)
+    )
     const auctionablePlayers = allPlayers?.filter(p => !captainPlayerIds.has(p.id)) || []
     const auctionProgress = {
       totalPlayers: auctionablePlayers.length,
-      soldPlayers: auctionablePlayers.filter(p => p.status === 'SOLD').length,
-      availablePlayers: auctionablePlayers.filter(p => p.status === 'AVAILABLE').length,
+      soldPlayers: auctionablePlayers.filter(p => allSoldPlayerIds.has(p.id)).length,
+      availablePlayers: auctionablePlayers.filter(p => !allSoldPlayerIds.has(p.id)).length,
       currentRoundNumber: allRounds?.filter(r => r.status === 'CLOSED').length || 0,
       totalRounds: allRounds?.length || 0,
     }
+
+    // ── Fetch all team budgets ─────────────────────────────────
+    const { data: allTeamBudgets } = await supabase
+      .from('team_budgets')
+      .select('team_id, budget_remaining')
+      .eq('auction_id', auctionId)
+
+    const budgetMap = new Map(
+      (allTeamBudgets || []).map(b => [b.team_id, b.budget_remaining])
+    )
 
     // ── Build all-teams squads ─────────────────────────────────
     const allTeamSquads = (allTeams || []).map(t => {
@@ -328,7 +292,7 @@ export async function GET(
       return {
         id: t.id,
         name: t.name,
-        budgetRemaining: t.budget_remaining ?? totalBudget,
+        budgetRemaining: budgetMap.get(t.id) ?? totalBudget,
         captainPlayer: captainPlayer
           ? { id: captainPlayer.id, name: captainPlayer.name, playingRole: captainPlayer.playing_role }
           : null,
@@ -351,7 +315,7 @@ export async function GET(
       team: {
         id: team.id,
         name: team.name,
-        captainId: team.captain_id,
+        captainId: team.captain_user_id,
       },
       currentRound: currentRoundData,
       budgetSummary,

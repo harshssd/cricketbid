@@ -9,8 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
-  Users, Search, Filter, Upload, Download,
-  User, Trophy, Target, MoreVertical
+  Users, Search, Upload,
+  User, MoreVertical
 } from 'lucide-react'
 import { useAuction } from '@/hooks/useAuction'
 import { PlayerImport } from '@/components/auction/PlayerImport'
@@ -23,7 +23,7 @@ interface Player {
   battingStyle?: string
   bowlingStyle?: string
   customTags?: string
-  status: 'AVAILABLE' | 'SOLD' | 'UNSOLD'
+  status: 'AVAILABLE' | 'SOLD'
   tier: {
     id: string
     name: string
@@ -48,7 +48,6 @@ export default function AuctionPlayersPage() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
   const [tierFilter, setTierFilter] = useState('all')
   const [roleFilter, setRoleFilter] = useState('all')
 
@@ -88,21 +87,18 @@ export default function AuctionPlayersPage() {
                          player.playingRole.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          player.customTags?.toLowerCase().includes(searchQuery.toLowerCase())
 
-    const matchesStatus = statusFilter === 'all' || player.status.toLowerCase() === statusFilter
-
     const matchesTier = tierFilter === 'all' || player.tier.id === tierFilter
 
     const matchesRole = roleFilter === 'all' ||
                        player.playingRole.toLowerCase().includes(roleFilter.toLowerCase())
 
-    return matchesSearch && matchesStatus && matchesTier && matchesRole
+    return matchesSearch && matchesTier && matchesRole
   })
 
   const playersByStatus = {
     total: players.length,
     available: players.filter(p => p.status === 'AVAILABLE').length,
     sold: players.filter(p => p.status === 'SOLD').length,
-    unsold: players.filter(p => p.status === 'UNSOLD').length,
   }
 
   if (auctionLoading || loading) {
@@ -188,7 +184,7 @@ export default function AuctionPlayersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold mb-1">{playersByStatus.total}</div>
@@ -207,12 +203,6 @@ export default function AuctionPlayersPage() {
             <div className="text-sm text-muted-foreground">Sold</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-destructive mb-1">{playersByStatus.unsold}</div>
-            <div className="text-sm text-muted-foreground">Unsold</div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Filters */}
@@ -229,19 +219,6 @@ export default function AuctionPlayersPage() {
                 className="pl-10"
               />
             </div>
-
-            {/* Status Filter */}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="available">Available</SelectItem>
-                <SelectItem value="sold">Sold</SelectItem>
-                <SelectItem value="unsold">Unsold</SelectItem>
-              </SelectContent>
-            </Select>
 
             {/* Tier Filter */}
             <Select value={tierFilter} onValueChange={setTierFilter}>
