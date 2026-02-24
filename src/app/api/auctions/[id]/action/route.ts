@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -26,7 +26,7 @@ export async function POST(
   { params }: RouteParams
 ) {
   try {
-    const supabase = createAdminClient()
+    const supabase = await createClient()
     const { id: auctionId } = await params
     const body = await request.json()
     const { action, teamId, amount } = body as {

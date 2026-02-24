@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { validateAndSubmitBid } from '@/lib/bid-utils'
 
@@ -19,7 +19,7 @@ const bidSchema = z.object({
  * be validated and stored with proper foreign keys.
  */
 async function resolveRoundId(
-  supabase: ReturnType<typeof createAdminClient>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   roundId: string,
   auctionId: string,
   playerId: string
@@ -72,7 +72,7 @@ export async function POST(
   { params }: RouteParams
 ) {
   try {
-    const supabase = createAdminClient()
+    const supabase = await createClient()
     const { sessionId } = await params
     const body = await request.json()
 

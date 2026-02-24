@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 
 interface RouteParams {
   params: Promise<{ sessionId: string }>
@@ -100,10 +99,8 @@ export async function GET(
       .select('player_id, team_id, winning_bid_amount')
       .eq('auction_id', auctionId)
 
-    // ── Fetch open round (admin client bypasses RLS) ───────────
-    const adminDb = createAdminClient()
-
-    const { data: openRounds } = await adminDb
+    // ── Fetch open round ──────────────────────────────────────
+    const { data: openRounds } = await supabase
       .from('rounds')
       .select('id, tier_id, player_id, status, closed_at, timer_seconds, opened_at')
       .eq('auction_id', auctionId)
@@ -112,7 +109,7 @@ export async function GET(
       .limit(1)
 
     // ── Fetch all rounds for progress tracking ─────────────────
-    const { data: allRounds } = await adminDb
+    const { data: allRounds } = await supabase
       .from('rounds')
       .select('id, status')
       .eq('auction_id', auctionId)
@@ -150,7 +147,7 @@ export async function GET(
       // Check if this team has already bid
       let myBid: { amount: number; submittedAt: string; status: string } | undefined
       if (currentPlayer) {
-        const { data: teamBid } = await adminDb
+        const { data: teamBid } = await supabase
           .from('bids')
           .select('amount, submitted_at, is_winning_bid')
           .eq('round_id', currentRound.id)
