@@ -85,7 +85,7 @@ function CreateAuctionContent() {
         basicInfo: {
           name: setup.auctionName,
           description: `Cricket auction with ${setup.teamCount} teams and ${setup.playerPoolSize} players`,
-          visibility: 'PRIVATE' as const,
+          visibility: 'PUBLIC' as const,
         },
         leagueId,
         config: {
