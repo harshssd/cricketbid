@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { auctionRealtimeManager, AuctionState } from '@/lib/auction-realtime'
+import { createClient } from '@/lib/supabase'
+import type { AuctionState } from '@/lib/auction-realtime'
 
 export type ViewState = 'connecting' | 'waiting' | 'player_up' | 'sold_celebration' | 'between_bids' | 'auction_complete'
 
@@ -84,111 +85,102 @@ export function useLiveAuction(auctionId: string) {
     return color
   }, [])
 
-  // Fetch full auction data from REST API on mount
-  useEffect(() => {
-    let cancelled = false
+  // Fetch auction data from REST API, build AuctionState, and feed to handleState
+  const fetchAndHandleState = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}`)
+      if (!res.ok) throw new Error('Failed to fetch')
+      const data = await res.json()
 
-    async function fetchAuctionData() {
-      try {
-        const res = await fetch(`/api/auctions/${auctionId}`)
-        if (!res.ok) throw new Error('Failed to fetch')
-        const data = await res.json()
+      if (!mountedRef.current) return
 
-        if (cancelled) return
+      setAuctionName(data.name)
 
-        setAuctionName(data.name)
-
-        const map = new Map<string, PlayerDetails>()
-        for (const p of data.players || []) {
-          map.set(p.name, {
-            name: p.name,
-            image: p.image,
-            playingRole: p.playingRole || 'BATSMAN',
-            battingStyle: p.battingStyle,
-            bowlingStyle: p.bowlingStyle,
-            tier: p.tier,
-          })
-          // Also index by ID for formal model lookups
-          map.set(p.id, {
-            name: p.name,
-            image: p.image,
-            playingRole: p.playingRole || 'BATSMAN',
-            battingStyle: p.battingStyle,
-            bowlingStyle: p.bowlingStyle,
-            tier: p.tier,
-          })
+      const map = new Map<string, PlayerDetails>()
+      for (const p of data.players || []) {
+        const details: PlayerDetails = {
+          name: p.name,
+          image: p.image,
+          playingRole: p.playingRole || 'BATSMAN',
+          battingStyle: p.battingStyle,
+          bowlingStyle: p.bowlingStyle,
+          tier: p.tier,
         }
-        setPlayerMap(map)
-
-        const captainMap = new Map<string, LiveTeamCaptain>()
-        for (const team of data.teams || []) {
-          getTeamColor(team.name)
-          if (team.captainPlayer) {
-            captainMap.set(team.name, {
-              name: team.captainPlayer.name,
-              role: team.captainPlayer.playingRole,
-            })
-          }
-        }
-        setTeamCaptainMap(captainMap)
-
-        // Build AuctionState from the REST API data so the live view works
-        // immediately, regardless of realtime channel status
-        const queueState = data.queueState || {}
-        const soldPlayers = (data.players || [])
-          .filter((p: any) => p.status === 'SOLD' && p.assignedTeam)
-          .map((p: any) => {
-            const team = (data.teams || []).find((t: any) => t.id === p.assignedTeam?.id)
-            const result = (team?.players || []).find((tp: any) => tp.id === p.id)
-            return {
-              playerId: p.id,
-              playerName: p.name,
-              teamId: p.assignedTeam.id,
-              teamName: p.assignedTeam.name,
-              price: result?.price || 0,
-            }
-          })
-
-        const initialState: AuctionState = {
-          id: data.id || auctionId,
-          name: data.name || '',
-          status: data.status || 'DRAFT',
-          teams: (data.teams || []).map((t: any) => ({
-            id: t.id,
-            name: t.name,
-            coins: t.budgetRemaining ?? data.budgetPerTeam ?? 0,
-            originalCoins: data.budgetPerTeam ?? 0,
-            players: (t.players || []).map((p: any) => ({
-              id: p.id || '',
-              name: p.name || 'Unknown',
-              price: p.price || 0,
-            })),
-          })),
-          currentRound: null,
-          soldPlayers,
-          unsoldPlayers: queueState.unsoldPlayers || [],
-          deferredPlayers: queueState.deferredPlayers || [],
-          auctionHistory: queueState.auctionHistory || [],
-          auctionQueue: queueState.auctionQueue || [],
-          auctionIndex: queueState.auctionIndex ?? 0,
-          auctionStarted: queueState.auctionStarted ?? false,
-          lastUpdated: new Date().toISOString(),
-        }
-
-        // Deliver via the handleState ref so view transitions work correctly
-        if (handleStateRef.current) {
-          handleStateRef.current(initialState)
-        }
-      } catch (err) {
-        console.error('Failed to fetch auction data:', err)
+        map.set(p.name, details)
+        // Also index by ID for formal model lookups
+        map.set(p.id, details)
       }
-    }
+      setPlayerMap(map)
 
-    fetchAuctionData()
-    return () => { cancelled = true }
+      const captainMap = new Map<string, LiveTeamCaptain>()
+      for (const team of data.teams || []) {
+        getTeamColor(team.name)
+        if (team.captainPlayer) {
+          captainMap.set(team.name, {
+            name: team.captainPlayer.name,
+            role: team.captainPlayer.playingRole,
+          })
+        }
+      }
+      setTeamCaptainMap(captainMap)
+
+      // Build AuctionState from the REST API data
+      const queueState = data.queueState || {}
+      const soldPlayers = (data.players || [])
+        .filter((p: any) => p.status === 'SOLD' && p.assignedTeam)
+        .map((p: any) => {
+          const team = (data.teams || []).find((t: any) => t.id === p.assignedTeam?.id)
+          const result = (team?.players || []).find((tp: any) => tp.id === p.id)
+          return {
+            playerId: p.id,
+            playerName: p.name,
+            teamId: p.assignedTeam.id,
+            teamName: p.assignedTeam.name,
+            price: result?.price || 0,
+          }
+        })
+
+      const state: AuctionState = {
+        id: data.id || auctionId,
+        name: data.name || '',
+        status: data.status || 'DRAFT',
+        teams: (data.teams || []).map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          coins: t.budgetRemaining ?? data.budgetPerTeam ?? 0,
+          originalCoins: data.budgetPerTeam ?? 0,
+          players: (t.players || []).map((p: any) => ({
+            id: p.id || '',
+            name: p.name || 'Unknown',
+            price: p.price || 0,
+          })),
+        })),
+        currentRound: null,
+        soldPlayers,
+        unsoldPlayers: queueState.unsoldPlayers || [],
+        deferredPlayers: queueState.deferredPlayers || [],
+        auctionHistory: queueState.auctionHistory || [],
+        auctionQueue: queueState.auctionQueue || [],
+        auctionIndex: queueState.auctionIndex ?? 0,
+        auctionStarted: queueState.auctionStarted ?? false,
+        lastUpdated: new Date().toISOString(),
+      }
+
+      // Deliver via the handleState ref so view transitions work correctly
+      handleStateRef.current(state)
+    } catch (err) {
+      console.error('Failed to fetch auction data:', err)
+    }
   }, [auctionId, getTeamColor])
 
-  // Subscribe to realtime
+  // Initial fetch on mount
+  useEffect(() => {
+    mountedRef.current = true
+    fetchAndHandleState()
+    return () => { mountedRef.current = false }
+  }, [fetchAndHandleState])
+
+  // handleState: process AuctionState into view transitions
   useEffect(() => {
     mountedRef.current = true
     isFirstStateRef.current = true
@@ -286,30 +278,37 @@ export function useLiveAuction(auctionId: string) {
     }
 
     handleStateRef.current = handleState
-    auctionRealtimeManager.onAuctionStateChange(handleState)
-    auctionRealtimeManager.subscribeToAuction(auctionId)
+  }, [getTeamColor, clearTimers, setView])
 
-    return () => {
-      mountedRef.current = false
-      clearTimers()
-      auctionRealtimeManager.unsubscribe()
-    }
-  }, [auctionId, getTeamColor, clearTimers, setView])
-
-  // Poll auction state from API as fallback (every 10s)
+  // Direct Supabase realtime subscription (same pattern as bidder)
+  // On any broadcast event, re-fetch from REST API for reliable state
   useEffect(() => {
     if (!auctionId) return
 
-    const poll = setInterval(async () => {
-      try {
-        await auctionRealtimeManager.refreshState()
-      } catch {
-        // ignore polling errors
-      }
-    }, 10000)
+    const supabase = createClient()
+    const channel = supabase.channel(`auction-${auctionId}`)
 
+    channel
+      .on('broadcast', { event: 'auction-state' }, () => {
+        fetchAndHandleState()
+      })
+      .on('broadcast', { event: 'bid-update' }, () => {
+        fetchAndHandleState()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [auctionId, fetchAndHandleState])
+
+  // Poll as fallback (every 10s)
+  useEffect(() => {
+    if (!auctionId) return
+
+    const poll = setInterval(fetchAndHandleState, 10000)
     return () => clearInterval(poll)
-  }, [auctionId])
+  }, [auctionId, fetchAndHandleState])
 
   // Derived values
   const currentPlayerName = auctionState?.auctionStarted

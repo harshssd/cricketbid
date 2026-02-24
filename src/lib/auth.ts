@@ -299,12 +299,6 @@ export async function verifyTeamAdminAccess(
     if (teamCaptain) {
       authorizedUsers.push(`${teamCaptain.name} (${teamCaptain.email}) - Team Captain`)
     }
-    captainMembers?.forEach((member: any) => {
-      if (member.user) {
-        authorizedUsers.push(`${member.user.name} (${member.user.email}) - Captain`)
-      }
-    })
-
     return {
       success: false,
       error: 'Access denied - you are not authorized to access this team',

@@ -140,7 +140,7 @@ export async function GET(
     // ── Fetch auction details ──────────────────────────────────
     const { data: auction, error: auctionError } = await supabase
       .from('auctions')
-      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size')
+      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size, queue_state')
       .eq('id', auctionId)
       .maybeSingle()
 
@@ -426,10 +426,15 @@ export async function GET(
     // ── Auction progress ───────────────────────────────────────
     const totalPlayerCount = allPlayers?.length || 0
     const soldCount = allSoldPlayerIds.size
+    // Get unsold count from queue_state
+    const queueState = (auction as any)?.queue_state as Record<string, unknown> | null
+    const unsoldCount = Array.isArray(queueState?.unsoldPlayers) ? (queueState.unsoldPlayers as string[]).length : 0
+
     const auctionProgress = {
       totalPlayers: totalPlayerCount,
       soldPlayers: soldCount,
-      availablePlayers: totalPlayerCount - soldCount,
+      unsoldPlayers: unsoldCount,
+      availablePlayers: totalPlayerCount - soldCount - unsoldCount,
       currentRoundNumber: allRounds?.filter(r => r.status === 'CLOSED').length || 0,
       totalRounds: allRounds?.length || 0,
     }

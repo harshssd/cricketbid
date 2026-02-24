@@ -121,6 +121,7 @@ export interface SquadComposition {
 export interface AuctionProgress {
   totalPlayers: number
   soldPlayers: number
+  unsoldPlayers: number
   availablePlayers: number
   currentRoundNumber: number
   totalRounds: number

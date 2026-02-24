@@ -113,17 +113,11 @@ export async function POST(request: NextRequest) {
       `)
       .single()
 
-    if (createError) throw createError
-
-    // Transform to match expected shape
-    const result = {
-      ...team,
-      _count: { members: 0 }
-    }
+    if (createError || !team) throw createError || new Error('Failed to create team')
 
     return NextResponse.json({
       success: true,
-      team: result
+      team: { ...(team as any), _count: { members: 0 } }
     }, { status: 201 })
 
   } catch (error) {
@@ -176,7 +170,7 @@ export async function GET(request: NextRequest) {
     if (error) throw error
 
     // Transform to match expected shape with _count
-    const teams = (teamsRaw ?? []).map((rest) => ({
+    const teams = (teamsRaw ?? []).map((rest: any) => ({
       ...rest,
       _count: { members: 0 }
     }))
@@ -242,7 +236,7 @@ export async function PUT(request: NextRequest) {
       if (updateError) throw updateError
 
       updatedTeams.push({
-        ...updatedTeam,
+        ...(updatedTeam as any),
         _count: { members: 0 }
       })
     }
