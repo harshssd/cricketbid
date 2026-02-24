@@ -35,7 +35,7 @@ export async function GET(
     // ── Fetch auction details ──────────────────────────────────
     const { data: auction, error: auctionError } = await supabase
       .from('auctions')
-      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size')
+      .select('id, name, status, currency_name, currency_icon, budget_per_team, squad_size, queue_state')
       .eq('id', auctionId)
       .maybeSingle()
 
@@ -299,6 +299,30 @@ export async function GET(
       }
     })
 
+    // ── Build upcoming players from queue ───────────────────────
+    const queueState = (auction as any)?.queue_state as {
+      auctionQueue?: string[]
+      auctionIndex?: number
+    } | null
+
+    const auctionQueue = queueState?.auctionQueue || []
+    const auctionIndex = queueState?.auctionIndex ?? 0
+    const playerByName = new Map(
+      (allPlayers || []).map(p => [p.name, p])
+    )
+
+    // Slice from current index + 1 (skip the player being auctioned now)
+    const upcomingNames = auctionQueue.slice(auctionIndex + 1)
+    const upcomingPlayers = upcomingNames.map(name => {
+      const p = playerByName.get(name)
+      const tier = p ? tiers?.find(t => t.id === p.tier_id) : null
+      return {
+        name,
+        tierName: tier?.name || null,
+        tierColor: tier?.color || null,
+      }
+    })
+
     // ── Build response ─────────────────────────────────────────
     return NextResponse.json({
       auction: {
@@ -319,6 +343,7 @@ export async function GET(
       squad,
       auctionProgress,
       allTeamSquads,
+      upcomingPlayers,
     })
   } catch (error) {
     console.error('Failed to fetch bidder session:', error)

@@ -71,14 +71,9 @@ function AllSquadsSection({ teams }: { teams: LiveTeam[] }) {
                   {/* Acquired players */}
                   {team.players.length > 0 ? (
                     team.players.map((p, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                      <div key={i} className="flex items-center gap-1.5 text-xs">
                           <span className="shrink-0">{getRoleIcon(p.role)}</span>
                           <span className="truncate">{p.name}</span>
-                        </div>
-                        <span className="text-muted-foreground tabular-nums shrink-0 ml-1">
-                          {p.price}
-                        </span>
                       </div>
                     ))
                   ) : (
@@ -143,6 +138,47 @@ export default function LiveAuctionView({ auctionId }: LiveAuctionViewProps) {
         showSquads={showSquads}
         onToggleSquads={() => setShowSquads(prev => !prev)}
       />
+
+      {/* Auction Progress Widget */}
+      {progress.total > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+          <Card className="overflow-hidden">
+            <CardContent className="py-4 px-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+                  Auction Progress
+                </span>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span><span className="font-semibold text-foreground tabular-nums">{progress.sold}</span> sold</span>
+                  <span><span className="font-semibold text-foreground tabular-nums">{Math.max(0, progress.total - progress.sold - progress.unsold)}</span> remaining</span>
+                </div>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+                <motion.div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500"
+                  initial={false}
+                  animate={{ width: `${progress.total > 0 ? (progress.sold / progress.total) * 100 : 0}%` }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-4 mt-3">
+                <div className="text-center">
+                  <div className="text-lg font-bold tabular-nums text-emerald-500">{progress.sold}</div>
+                  <div className="text-[11px] text-muted-foreground">Sold</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold tabular-nums text-amber-500">{Math.max(0, progress.total - progress.sold - progress.unsold)}</div>
+                  <div className="text-[11px] text-muted-foreground">Available</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold tabular-nums text-red-500">{progress.unsold}</div>
+                  <div className="text-[11px] text-muted-foreground">Unsold</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Squads overlay — shown on toggle, above the normal view */}

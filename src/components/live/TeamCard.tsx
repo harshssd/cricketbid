@@ -117,6 +117,68 @@ export function TeamCard({ team, compact }: TeamCardProps) {
         />
       </div>
 
+      {/* Squad Composition */}
+      {totalPlayers > 0 && (() => {
+        const roles = [
+          { key: 'BATSMAN', label: 'Batsmen', icon: '\u{1F3CF}', color: '#a855f7' },
+          { key: 'BOWLER', label: 'Bowlers', icon: '\u{1F3AF}', color: '#a855f7' },
+          { key: 'ALL_ROUNDER', label: 'All-Rounders', icon: '\u26A1', color: '#a855f7' },
+          { key: 'WICKETKEEPER', label: 'Keepers', icon: '\u{1F9E4}', color: '#a855f7' },
+        ]
+        const allRoles = [
+          ...(team.captain?.role ? [team.captain.role] : []),
+          ...team.players.map(p => p.role),
+        ]
+        const maxCount = Math.max(1, ...roles.map(r => allRoles.filter(pr => pr === r.key).length))
+        return (
+          <div className="mb-3 pb-3 border-b border-border/50">
+            <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase mb-2">
+              Squad Composition
+            </p>
+            <div className="flex items-center gap-4">
+              {/* Donut ring */}
+              <div className="shrink-0">
+                <svg width="56" height="56" viewBox="0 0 56 56">
+                  <circle cx="28" cy="28" r="22" fill="none" stroke="currentColor" className="text-muted" strokeWidth="5" />
+                  <circle
+                    cx="28" cy="28" r="22"
+                    fill="none" stroke={team.color} strokeWidth="5"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 22}`}
+                    strokeDashoffset={`${2 * Math.PI * 22 * (1 - Math.min(1, totalPlayers / Math.max(totalPlayers, 11)))}`}
+                    transform="rotate(-90 28 28)"
+                  />
+                  <text x="28" y="26" textAnchor="middle" className="fill-foreground text-sm font-bold">{totalPlayers}</text>
+                  <text x="28" y="37" textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: '8px' }}>players</text>
+                </svg>
+              </div>
+              {/* Role bars */}
+              <div className="flex-1 space-y-1.5">
+                {roles.map(r => {
+                  const count = allRoles.filter(pr => pr === r.key).length
+                  return (
+                    <div key={r.key} className="flex items-center gap-2 text-xs">
+                      <span className="text-[11px] w-4 shrink-0">{r.icon}</span>
+                      <span className="text-muted-foreground w-20 truncate">{r.label}</span>
+                      <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
+                        <motion.div
+                          className="h-full rounded-full"
+                          style={{ backgroundColor: r.color }}
+                          initial={false}
+                          animate={{ width: `${maxCount > 0 ? (count / maxCount) * 100 : 0}%` }}
+                          transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                        />
+                      </div>
+                      <span className="tabular-nums text-foreground font-medium w-4 text-right shrink-0">{count}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Player list */}
       {(team.captain || team.players.length > 0) && (
         <div className="space-y-1.5">

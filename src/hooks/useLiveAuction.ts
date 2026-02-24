@@ -39,6 +39,7 @@ export interface LastSoldEvent {
 export interface LiveAuctionProgress {
   sold: number
   total: number
+  unsold: number
 }
 
 const TEAM_COLORS = [
@@ -346,6 +347,7 @@ export function useLiveAuction(auctionId: string) {
   const progress: LiveAuctionProgress = {
     sold: auctionState?.soldPlayers?.length || 0,
     total: queueTotal,
+    unsold: auctionState?.unsoldPlayers?.length || 0,
   }
 
   return {

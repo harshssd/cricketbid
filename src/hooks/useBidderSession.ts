@@ -68,6 +68,12 @@ export interface AllTeamSquadEntry {
   isCurrentTeam: boolean
 }
 
+export interface UpcomingPlayer {
+  name: string
+  tierName: string | null
+  tierColor: string | null
+}
+
 export interface BidderSessionData {
   auction: {
     id: string
@@ -96,6 +102,7 @@ export interface BidderSessionData {
   }
   squad: BidderSquadPlayer[]
   allTeamSquads: AllTeamSquadEntry[]
+  upcomingPlayers: UpcomingPlayer[]
   auctionProgress: {
     totalPlayers: number
     soldPlayers: number

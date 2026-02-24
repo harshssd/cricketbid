@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Minus, Plus, ChevronDown, ChevronUp, Check,
   AlertCircle, SkipForward, Undo2, RefreshCw, Loader2,
-  Users, Wallet, Trophy
+  Users, Wallet, Trophy, TrendingUp
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -52,6 +52,75 @@ function getRoleLabel(role: string) {
 
 function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+}
+
+// ── Squad Composition Donut ─────────────────────────────────────
+
+function CompositionDonut({ squad, targetSize }: { squad: BidderSquadPlayer[]; targetSize: number }) {
+  const segments = [
+    { label: 'Batsmen', count: squad.filter(p => p.playingRole === 'BATSMAN').length, color: '#3b82f6', icon: '🏏' },
+    { label: 'Bowlers', count: squad.filter(p => p.playingRole === 'BOWLER').length, color: '#ef4444', icon: '🎯' },
+    { label: 'All-Rounders', count: squad.filter(p => p.playingRole === 'ALL_ROUNDER').length, color: '#a855f7', icon: '⚡' },
+    { label: 'Keepers', count: squad.filter(p => p.playingRole === 'WICKETKEEPER').length, color: '#f59e0b', icon: '🧤' },
+  ]
+
+  const total = squad.length || 1
+  let cumulativePercent = 0
+
+  return (
+    <div className="flex items-center gap-6">
+      <div className="relative w-20 h-20 shrink-0">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+          {segments.map((seg, i) => {
+            const percent = (seg.count / total) * 100
+            const dashArray = 2 * Math.PI * 40
+            const offset = dashArray - (percent / 100) * dashArray
+            const rotation = (cumulativePercent / 100) * 360
+            cumulativePercent += percent
+
+            return seg.count > 0 ? (
+              <circle
+                key={i}
+                cx="50" cy="50" r="40"
+                fill="none"
+                stroke={seg.color}
+                strokeWidth="10"
+                strokeDasharray={dashArray}
+                strokeDashoffset={offset}
+                transform={`rotate(${rotation} 50 50)`}
+                className="transition-all duration-700"
+              />
+            ) : null
+          })}
+          {squad.length === 0 && (
+            <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor"
+              className="text-muted" strokeWidth="10" />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-base font-bold">{squad.length}</span>
+          <span className="text-[9px] text-muted-foreground">/{targetSize}</span>
+        </div>
+      </div>
+      <div className="flex-1 space-y-1.5">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs">{seg.icon}</span>
+            <div className="flex-1 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground w-[72px]">{seg.label}</span>
+              <div className="flex-1 h-1 rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${(seg.count / Math.max(1, targetSize)) * 100}%`, backgroundColor: seg.color }}
+                />
+              </div>
+            </div>
+            <span className="text-xs font-semibold tabular-nums">{seg.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ── Main Component ───────────────────────────────────────────────
@@ -174,7 +243,7 @@ export default function BidderPage() {
     )
   }
 
-  const { auction, team, currentRound, budgetSummary, squad } = session
+  const { auction, team, currentRound, budgetSummary, squad, upcomingPlayers } = session
 
   // ── Auction Not Live ─────────────────────────────────────────
   if (auction.status === 'DRAFT' || auction.status === 'LOBBY') {
@@ -314,6 +383,26 @@ export default function BidderPage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Overview Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'SQUAD', value: `${squad.length}/${auction.squadSize}`, icon: <Users className="w-4 h-4" />, color: '#06b6d4' },
+            { label: 'SPENT', value: budgetSummary.spent.toLocaleString(), icon: <Wallet className="w-4 h-4" />, color: '#a855f7' },
+            { label: 'AVG/PLAYER', value: squad.length > 0 ? Math.round(budgetSummary.spent / squad.length).toLocaleString() : '0', icon: <TrendingUp className="w-4 h-4" />, color: '#f59e0b' },
+            { label: 'BIDS WON', value: String(squad.length), icon: <Trophy className="w-4 h-4" />, color: '#22c55e' },
+          ].map((stat) => (
+            <Card key={stat.label}>
+              <CardContent className="pt-4 pb-3 px-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span style={{ color: stat.color }}>{stat.icon}</span>
+                  <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{stat.label}</span>
+                </div>
+                <p className="text-2xl font-bold tabular-nums text-foreground">{stat.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
         <AnimatePresence mode="wait">
           {isWaiting ? (
             /* ── Waiting for Next Player ──────────────────── */
@@ -386,6 +475,16 @@ export default function BidderPage() {
                           {budgetSummary.spent.toLocaleString()} / {budgetSummary.totalBudget.toLocaleString()} {currencyIcon} spent
                         </p>
                       </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Squad Composition */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Squad Composition</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CompositionDonut squad={squad} targetSize={auction.squadSize} />
                     </CardContent>
                   </Card>
 
@@ -711,6 +810,16 @@ export default function BidderPage() {
                     </CardContent>
                   </Card>
 
+                  {/* Squad Composition */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Squad Composition</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CompositionDonut squad={squad} targetSize={auction.squadSize} />
+                    </CardContent>
+                  </Card>
+
                   {/* My Squad */}
                   <Card>
                     <CardHeader>
@@ -807,6 +916,38 @@ export default function BidderPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── Up Next ──────────────────────────────────────── */}
+        {upcomingPlayers && upcomingPlayers.length > 0 && (
+          <div className="mt-8">
+            <Card>
+              <CardHeader>
+                <CardTitle>Up Next ({upcomingPlayers.length} players)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1">
+                  {upcomingPlayers.map((player, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between p-2 bg-muted rounded text-sm"
+                    >
+                      <span className="font-medium text-foreground">{player.name}</span>
+                      {player.tierName && (
+                        <Badge
+                          variant="secondary"
+                          className="text-xs shrink-0 ml-2"
+                          style={player.tierColor ? { borderColor: player.tierColor, color: player.tierColor } : undefined}
+                        >
+                          {player.tierName}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* ── All Team Squads ─────────────────────────────── */}
         {session.allTeamSquads && session.allTeamSquads.length > 0 && (
